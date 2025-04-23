@@ -164,6 +164,9 @@ bool bx_geforce_c::init_vga_extension(void)
   if (model_enum == GEFORCE_3) {
     BX_GEFORCE_THIS card_type = 0x20;
     model_string = "GeForce3 Ti 500";
+    
+    // Initialize NV20-specific state
+    memset(&BX_GEFORCE_THIS nv20, 0, sizeof(BX_GEFORCE_THIS nv20));
   } else if (model_enum == GEFORCE_FX_5900) {
     BX_GEFORCE_THIS card_type = 0x35;
     model_string = "GeForce FX 5900";
@@ -178,6 +181,16 @@ bool bx_geforce_c::init_vga_extension(void)
 
   if (!SIM->is_agp_device(BX_PLUGIN_GEFORCE)) {
     BX_PANIC(("%s should be plugged into AGP slot", model_string));
+  }
+
+  if (BX_GEFORCE_THIS card_type == 0x20) {
+    BX_INFO(("GeForce3 Ti 500 (NV20) initialized"));
+    
+    // Initialize vertex program
+    memset(&BX_GEFORCE_THIS vertexprogram, 0, sizeof(BX_GEFORCE_THIS vertexprogram));
+    
+    // Initialize NV20-specific features
+    memset(&BX_GEFORCE_THIS nv20, 0, sizeof(BX_GEFORCE_THIS nv20));
   }
 
   BX_GEFORCE_THIS pci_enabled = true;
@@ -443,6 +456,14 @@ void bx_geforce_c::reset(unsigned type)
   BX_GEFORCE_THIS svga_init_members();
   // Disable ROM shadowing to allow clearing of VRAM
   BX_GEFORCE_THIS pci_conf[0x50] = 0x00;
+  // Reset NV20-specific state
+  if (BX_GEFORCE_THIS card_type == 0x20) {
+    // Reset vertex program state
+    memset(&BX_GEFORCE_THIS vertexprogram, 0, sizeof(BX_GEFORCE_THIS vertexprogram));
+    
+    // Reset NV20 render state
+    memset(&BX_GEFORCE_THIS nv20, 0, sizeof(BX_GEFORCE_THIS nv20));
+  }
 }
 
 void bx_geforce_c::register_state(void)
@@ -2045,8 +2066,12 @@ Bit32u bx_geforce_c::ramht_lookup(Bit32u handle, Bit32u chid)
       it = 0;
   } while (it != hash);
 
+  if ((BX_GEFORCE_THIS card_type == 0x20) && ((context >> 16 & 0xFF) == NV20_3D_CLASS)) {
+    BX_DEBUG(("ramht_lookup: Found NV20_3D_CLASS object (0x097)"));
+  }
+
   BX_PANIC(("ramht_lookup failed for 0x%08x", handle));
-  return 0;
+  return context;
 }
 
 void bx_geforce_c::gdi_fillrect(Bit32u chid, bool clipped)
@@ -2604,10 +2629,772 @@ void bx_geforce_c::execute_iifc(Bit32u chid, Bit32u method, Bit32u param)
   }
 }
 
+BX_GEFORCE_SMF void bx_geforce_c::nv20_execute_vertex_program(vertex_nv *vertex_in, vertex_nv *vertex_out)
+{
+  // If vertex program is disabled or not supported by card type, do nothing
+  if (BX_GEFORCE_THIS card_type != 0x20 || !BX_GEFORCE_THIS nv20.vertex_program.enabled) {
+    *vertex_out = *vertex_in;  // Pass through unchanged
+    return;
+  }
+  
+  // For a basic implementation, we'll track register values during execution
+  float registers[32][4];  // Temporary registers
+  float constants[192][4]; // Constant registers
+  
+  // Initialize registers from input vertex
+  for (int i = 0; i < 16; i++) {
+    for (int j = 0; j < 4; j++) {
+      if (i < 16) {
+        registers[i][j] = vertex_in->attribute[i].fv[j];
+      } else {
+        registers[i][j] = 0.0f;
+      }
+    }
+  }
+  
+  // Convert constants from raw 32-bit values to float
+  for (int i = 0; i < 192; i++) {
+    for (int j = 0; j < 4; j++) {
+      union {
+        Bit32u i;
+        float f;
+      } value;
+      
+      value.i = BX_GEFORCE_THIS nv20.vertex_program.constants[i][j];
+      constants[i][j] = value.f;
+    }
+  }
+  
+  // Execute vertex program from the start instruction
+  Bit32u pc = BX_GEFORCE_THIS nv20.vertex_program.program_start;
+  bool end_program = false;
+  
+  // Simple vertex program execution loop
+  while (!end_program && pc < 256) {
+    // Get instruction components
+    Bit32u instr[4];
+    for (int i = 0; i < 4; i++) {
+      instr[i] = BX_GEFORCE_THIS nv20.vertex_program.instructions[pc][i];
+    }
+    
+    // Extract instruction fields (simplified)
+    Bit32u opcode = (instr[0] >> 25) & 0x1F;        // Operation code
+    Bit32u dst_reg = (instr[0] >> 17) & 0x1F;       // Destination register
+    Bit32u dst_mask = (instr[0] >> 13) & 0xF;       // Write mask
+    bool end_flag = (instr[0] & 0x1) != 0;          // End of program flag
+    
+    // Source operands (simplified)
+    int src_reg[3] = {
+      (int)((instr[1] >> 9) & 0x1F),  // Source A register
+      (int)((instr[2] >> 9) & 0x1F),  // Source B register
+      (int)((instr[3] >> 9) & 0x1F)   // Source C register
+    };
+    
+    // Source types (0=temp, 1=input, 2=constant)
+    int src_type[3] = {
+      (int)((instr[1] >> 1) & 0x3),   // Source A type
+      (int)((instr[2] >> 1) & 0x3),   // Source B type
+      (int)((instr[3] >> 1) & 0x3)    // Source C type
+    };
+    
+    // Get swizzle patterns for each source
+    int swizzle[3][4];
+    for (int s = 0; s < 3; s++) {
+      for (int c = 0; c < 4; c++) {
+        // Extract swizzle component from instruction
+        // This is a simplification - real NV20 has more complex swizzling
+        swizzle[s][c] = (instr[s+1] >> (5 + c*2)) & 0x3;
+      }
+    }
+    
+    // Get negate flags
+    bool negate[3] = {
+      (instr[1] & 0x1) != 0,  // Source A negate
+      (instr[2] & 0x1) != 0,  // Source B negate
+      (instr[3] & 0x1) != 0   // Source C negate
+    };
+    
+    // Read source operands
+    float src_val[3][4];
+    for (int s = 0; s < 3; s++) {
+      for (int c = 0; c < 4; c++) {
+        switch (src_type[s]) {
+          case 0:  // Temporary register
+            src_val[s][c] = registers[src_reg[s]][swizzle[s][c]];
+            break;
+            
+          case 1:  // Input (not fully implemented in this example)
+            src_val[s][c] = registers[src_reg[s]][swizzle[s][c]];
+            break;
+            
+          case 2:  // Constant register
+            src_val[s][c] = constants[src_reg[s]][swizzle[s][c]];
+            break;
+            
+          default:
+            src_val[s][c] = 0.0f;
+        }
+        
+        // Apply negate if needed
+        if (negate[s]) {
+          src_val[s][c] = -src_val[s][c];
+        }
+      }
+    }
+    
+    // Execute instruction based on opcode
+    float result[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    
+    switch (opcode) {
+      case 0:  // NOP
+        // No operation
+        break;
+        
+      case 1:  // MOV - Move
+        for (int i = 0; i < 4; i++) {
+          result[i] = src_val[0][i];
+        }
+        break;
+        
+      case 2:  // MUL - Multiply
+        for (int i = 0; i < 4; i++) {
+          result[i] = src_val[0][i] * src_val[1][i];
+        }
+        break;
+        
+      case 3:  // ADD - Add
+        for (int i = 0; i < 4; i++) {
+          result[i] = src_val[0][i] + src_val[1][i];
+        }
+        break;
+        
+      case 4:  // MAD - Multiply and Add
+        for (int i = 0; i < 4; i++) {
+          result[i] = src_val[0][i] * src_val[1][i] + src_val[2][i];
+        }
+        break;
+        
+      case 5:  // DP3 - 3-component Dot Product
+        {
+          float dot = src_val[0][0] * src_val[1][0] + 
+                     src_val[0][1] * src_val[1][1] + 
+                     src_val[0][2] * src_val[1][2];
+          result[0] = result[1] = result[2] = result[3] = dot;
+        }
+        break;
+        
+      case 6:  // DPH - Homogeneous Dot Product
+        {
+          float dot = src_val[0][0] * src_val[1][0] + 
+                     src_val[0][1] * src_val[1][1] + 
+                     src_val[0][2] * src_val[1][2] + 
+                     src_val[1][3];
+          result[0] = result[1] = result[2] = result[3] = dot;
+        }
+        break;
+        
+      case 7:  // DP4 - 4-component Dot Product
+        {
+          float dot = src_val[0][0] * src_val[1][0] + 
+                     src_val[0][1] * src_val[1][1] + 
+                     src_val[0][2] * src_val[1][2] + 
+                     src_val[0][3] * src_val[1][3];
+          result[0] = result[1] = result[2] = result[3] = dot;
+        }
+        break;
+        
+      default:
+        BX_DEBUG(("Unsupported vertex program opcode: %d", opcode));
+        break;
+    }
+    
+    // Write result to destination register using the write mask
+    for (int i = 0; i < 4; i++) {
+      if (dst_mask & (1 << (3-i))) {
+        registers[dst_reg][i] = result[i];
+      }
+    }
+    
+    // Check for end flag
+    if (end_flag) {
+      end_program = true;
+    }
+    
+    // Increment program counter
+    pc++;
+  }
+  
+  // Map output registers to output vertex
+  // R0 (register 0) typically contains the position
+  for (int i = 0; i < 4; i++) {
+    vertex_out->attribute[0].fv[i] = registers[0][i];
+  }
+  
+  // Map other outputs - this is a simplified mapping
+  // In a real implementation this would follow NV20's output register mapping
+  for (int r = 1; r < 16; r++) {
+    for (int i = 0; i < 4; i++) {
+      if (r < 16) {
+        vertex_out->attribute[r].fv[i] = registers[r][i];
+      }
+    }
+  }
+}
+
+BX_GEFORCE_SMF void bx_geforce_c::convert_vertices(vertex_nv *source, nv2avertex_t *destination)
+{
+  // Generic vertex conversion function for all card types
+  // This is the base implementation that works for all NVIDIA GPU generations
+
+  // Position coordinates
+  float x = source->attribute[0].fv[0];
+  float y = source->attribute[0].fv[1];
+  float z = source->attribute[0].fv[2];
+  float w = source->attribute[0].fv[3];
+
+  // Store the w-coordinate for perspective division
+  destination->w = w;
+
+  // Apply perspective division if w is not zero
+  if (w != 0.0f) {
+    x /= w;
+    y /= w;
+    z /= w;
+  }
+
+  // Viewport transformation
+  int viewport_width = BX_GEFORCE_THIS svga_xres;
+  int viewport_height = BX_GEFORCE_THIS svga_yres;
+
+  // Map NDC space [-1,1] to screen space [0,width/height]
+  destination->x = (x + 1.0f) * viewport_width * 0.5f;
+  destination->y = (1.0f - y) * viewport_height * 0.5f;
+  destination->z = z; // Z is already normalized to [0,1]
+
+  // Basic vertex attributes common to all GPUs
+  // Vertex colors (primary)
+  destination->r = source->attribute[3].fv[0]; // Red
+  destination->g = source->attribute[3].fv[1]; // Green
+  destination->b = source->attribute[3].fv[2]; // Blue
+  destination->a = source->attribute[3].fv[3]; // Alpha
+
+  // Secondary color
+  destination->sr = source->attribute[4].fv[0];
+  destination->sg = source->attribute[4].fv[1];
+  destination->sb = source->attribute[4].fv[2];
+
+  // Fog coordinate
+  destination->fog = source->attribute[5].fv[0];
+
+  // Texture coordinates for texture unit 0
+  destination->s[0] = source->attribute[9].fv[0];
+  destination->t[0] = source->attribute[9].fv[1];
+  destination->r[0] = source->attribute[9].fv[2];
+  destination->q[0] = source->attribute[9].fv[3];
+
+  // Card-specific processing
+  if (BX_GEFORCE_THIS card_type == 0x20) {
+    // GeForce3 (NV20) - extended texture coordinates
+    // Support for up to 4 texture units with full STRQ coordinates
+    for (int t = 1; t < 4; t++) {
+      int attr_idx = 9 + t;
+      destination->s[t] = source->attribute[attr_idx].fv[0];
+      destination->t[t] = source->attribute[attr_idx].fv[1];
+      destination->r[t] = source->attribute[attr_idx].fv[2];
+      destination->q[t] = source->attribute[attr_idx].fv[3];
+    }
+
+    // Additional NV20-specific attribute handling can go here
+  } else if (BX_GEFORCE_THIS card_type == 0x35) {
+    // GeForce FX 5900 (NV35) - extended texture coordinates
+    // Support for up to 4 texture units with full STRQ coordinates
+    for (int t = 1; t < 4; t++) {
+      int attr_idx = 9 + t;
+      destination->s[t] = source->attribute[attr_idx].fv[0];
+      destination->t[t] = source->attribute[attr_idx].fv[1];
+      destination->r[t] = source->attribute[attr_idx].fv[2];
+      destination->q[t] = source->attribute[attr_idx].fv[3];
+    }
+
+    // NV35-specific attribute handling
+  } else if (BX_GEFORCE_THIS card_type == 0x40) {
+    // GeForce 6800 (NV40) - extended texture coordinates
+    // Support for up to 4 texture units with full STRQ coordinates
+    for (int t = 1; t < 4; t++) {
+      int attr_idx = 9 + t;
+      destination->s[t] = source->attribute[attr_idx].fv[0];
+      destination->t[t] = source->attribute[attr_idx].fv[1];
+      destination->r[t] = source->attribute[attr_idx].fv[2];
+      destination->q[t] = source->attribute[attr_idx].fv[3];
+    }
+
+    // NV40-specific attribute handling
+  } else {
+    // Default handling for other card types
+    // Limited to basic texture coordinates for texture unit 0
+    // Initialize the remaining texture coordinates to defaults
+    for (int t = 1; t < 4; t++) {
+      destination->s[t] = 0.0f;
+      destination->t[t] = 0.0f;
+      destination->r[t] = 0.0f;
+      destination->q[t] = 1.0f;
+    }
+  }
+}
+
+BX_GEFORCE_SMF void bx_geforce_c::convert_vertices_nv20(vertex_nv *vertex_in, nv2avertex_t *vertex_out)
+{
+  // For GeForce3 (NV20) vertices
+  if (BX_GEFORCE_THIS card_type != 0x20) {
+    // Fall back to standard conversion if not NV20
+    convert_vertices(vertex_in, vertex_out);
+    return;
+  }
+
+  // Position (HPOS) is typically in attribute[0]
+  float x = vertex_in->attribute[0].fv[0];
+  float y = vertex_in->attribute[0].fv[1];
+  float z = vertex_in->attribute[0].fv[2];
+  float w = vertex_in->attribute[0].fv[3];
+  
+  // Store the original w-coordinate for perspective division
+  vertex_out->w = w;
+  
+  // Apply viewport transformation
+  if (w != 0.0f) {
+    // Convert from clip-space to normalized device coordinates
+    x /= w;
+    y /= w;
+    z /= w;
+  }
+  
+  // Viewport transformation
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_width = BX_GEFORCE_THIS svga_xres;
+  int viewport_height = BX_GEFORCE_THIS svga_yres;
+  
+  // Transform from normalized device coordinates to screen coordinates
+  vertex_out->x = (x + 1.0f) * viewport_width * 0.5f + viewport_x;
+  vertex_out->y = (1.0f - y) * viewport_height * 0.5f + viewport_y;
+  vertex_out->z = z; // Z is in range [0,1]
+  
+  // Color attributes: diffuse color (COL0) is usually attribute[3]
+  vertex_out->r = vertex_in->attribute[3].fv[0]; // Red
+  vertex_out->g = vertex_in->attribute[3].fv[1]; // Green
+  vertex_out->b = vertex_in->attribute[3].fv[2]; // Blue
+  vertex_out->a = vertex_in->attribute[3].fv[3]; // Alpha
+  
+  // Secondary color (COL1) is usually attribute[4]
+  vertex_out->sr = vertex_in->attribute[4].fv[0]; // Red
+  vertex_out->sg = vertex_in->attribute[4].fv[1]; // Green
+  vertex_out->sb = vertex_in->attribute[4].fv[2]; // Blue
+  
+  // Fog coordinate (FOGC) is usually attribute[5]
+  vertex_out->fog = vertex_in->attribute[5].fv[0];
+  
+  // Texture coordinates for up to 4 texture units
+  // TEX0-TEX3 are usually attributes 9-12
+  for (int t = 0; t < 4; t++) {
+    int attr_idx = 9 + t;
+    vertex_out->s[t] = vertex_in->attribute[attr_idx].fv[0];
+    vertex_out->t[t] = vertex_in->attribute[attr_idx].fv[1];
+    vertex_out->r[t] = vertex_in->attribute[attr_idx].fv[2];
+    vertex_out->q[t] = vertex_in->attribute[attr_idx].fv[3];
+  }
+}
+
+BX_GEFORCE_SMF void bx_geforce_c::assemble_primitive(int source, int count)
+{
+  int mode = BX_GEFORCE_THIS primitive_type;
+  int i, j, k, v_count = 0;
+  int indices[3];
+
+  BX_DEBUG(("assemble_primitive mode %d count %d primcount %d vertcount %d first %d", mode, count, BX_GEFORCE_THIS primitives_count, BX_GEFORCE_THIS vertex_count, BX_GEFORCE_THIS vertex_first));
+
+  for (i = 0; i < count; i++) {
+    // Process vertex through appropriate pipeline
+    vertex_nv *v = &BX_GEFORCE_THIS vertex_software[vertex_first + i];
+    nv2avertex_t *rv = &BX_GEFORCE_THIS vertex_xy[vertex_first + i];
+    
+    // Convert the vertex using standard conversion
+    convert_vertices(v, rv);
+    
+    // For GeForce3 (NV20), apply vertex program if enabled
+    if (BX_GEFORCE_THIS card_type == 0x20 && BX_GEFORCE_THIS nv20.vertex_program.enabled) {
+      // Execute vertex program on this vertex
+      vertex_nv processed_vertex;
+      nv20_execute_vertex_program(v, &processed_vertex);
+      
+      // Convert processed vertex to rasterizer format
+      convert_vertices(&processed_vertex, rv);
+    }
+    
+    BX_GEFORCE_THIS vertex_count++;
+  }
+  
+  switch (mode) {
+    case 0: // NV2A_BEGIN_END_STOP
+      break;
+    case 1: // NV2A_BEGIN_END_POINTS
+      break;
+    case 2: // NV2A_BEGIN_END_LINES
+      for (i = 0; i < count-1; i+=2) {
+        if (BX_GEFORCE_THIS primitives_count >= 1024) {
+          BX_DEBUG(("Too many primitives"));
+          return;
+        }
+        j = vertex_first + i;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j + 1;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 1; // Repeat last vertex as it's a line
+        BX_GEFORCE_THIS primitives_count++;
+      }
+      break;
+    case 5: // NV2A_BEGIN_END_TRIANGLES
+      v_count = count / 3;
+      for (i = 0; i < v_count; i++) {
+        if (BX_GEFORCE_THIS primitives_count >= 1024) {
+          BX_DEBUG(("Too many primitives"));
+          return;
+        }
+        j = vertex_first + i * 3;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j + 1;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 2;
+        BX_GEFORCE_THIS primitives_count++;
+      }
+      break;
+    case 6: // NV2A_BEGIN_END_TRIANGLE_STRIP
+      v_count = count - 2;
+      for (i = 0; i < v_count; i++) {
+        if (BX_GEFORCE_THIS primitives_count >= 1024) {
+          BX_DEBUG(("Too many primitives"));
+          return;
+        }
+        j = vertex_first + i;
+        if (i & 1) { // Odd numbered triangle
+          BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j + 1;
+          BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j;
+          BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 2;
+        } else { // Even numbered triangle
+          BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j;
+          BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j + 1;
+          BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 2;
+        }
+        BX_GEFORCE_THIS primitives_count++;
+      }
+      break;
+    case 7: // NV2A_BEGIN_END_TRIANGLE_FAN
+      v_count = count - 2;
+      for (i = 0; i < v_count; i++) {
+        if (BX_GEFORCE_THIS primitives_count >= 1024) {
+          BX_DEBUG(("Too many primitives"));
+          return;
+        }
+        j = vertex_first + i + 1;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = vertex_first;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 1;
+        BX_GEFORCE_THIS primitives_count++;
+      }
+      break;
+    case 8: // NV2A_BEGIN_END_QUADS
+      v_count = count / 4;
+      for (i = 0; i < v_count; i++) {
+        if (BX_GEFORCE_THIS primitives_count >= 1024-1) {
+          BX_DEBUG(("Too many primitives"));
+          return;
+        }
+        j = vertex_first + i * 4;
+        // First triangle of quad
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j + 1;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 2;
+        BX_GEFORCE_THIS primitives_count++;
+        // Second triangle of quad
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j + 2;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 3;
+        BX_GEFORCE_THIS primitives_count++;
+      }
+      break;
+    case 9: // NV2A_BEGIN_END_QUAD_STRIP
+      v_count = (count - 2) / 2;
+      for (i = 0; i < v_count; i++) {
+        if (BX_GEFORCE_THIS primitives_count >= 1024-1) {
+          BX_DEBUG(("Too many primitives"));
+          return;
+        }
+        j = vertex_first + i * 2;
+        // First triangle
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j + 1;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 2;
+        BX_GEFORCE_THIS primitives_count++;
+        // Second triangle
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = j + 1;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j + 3;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 2;
+        BX_GEFORCE_THIS primitives_count++;
+      }
+      break;
+    case 10: // NV2A_BEGIN_END_POLYGON
+      // Polygons are treated as triangle fans
+      v_count = count - 2;
+      for (i = 0; i < v_count; i++) {
+        if (BX_GEFORCE_THIS primitives_count >= 1024) {
+          BX_DEBUG(("Too many primitives"));
+          return;
+        }
+        j = vertex_first + i + 1;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3] = vertex_first;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 1] = j;
+        BX_GEFORCE_THIS vertex_indexes[BX_GEFORCE_THIS primitives_count*3 + 2] = j + 1;
+        BX_GEFORCE_THIS primitives_count++;
+      }
+      break;
+  }
+  
+  BX_GEFORCE_THIS vertex_first = BX_GEFORCE_THIS vertex_count;
+  BX_DEBUG(("assemble_primitive END: primcount %d vertcount %d first %d", BX_GEFORCE_THIS primitives_count, BX_GEFORCE_THIS vertex_count, BX_GEFORCE_THIS vertex_first));
+}
+
+BX_GEFORCE_SMF void bx_geforce_c::process_vertex(vertex_nv *vertex_in, nv2avertex_t *vertex_out, int index)
+{
+  // Check if we should use NV20 vertex program
+  if (BX_GEFORCE_THIS card_type == 0x20 && BX_GEFORCE_THIS nv20.vertex_program.enabled) {
+    // Process using vertex program
+    vertex_nv processed_vertex;
+    nv20_execute_vertex_program(vertex_in, &processed_vertex);
+    
+    // Convert processed vertex to rasterizer format
+    convert_vertices_nv20(&processed_vertex, vertex_out);
+  } else if (BX_GEFORCE_THIS card_type == 0x20) {
+    // For NV20 without vertex program, use special conversion
+    convert_vertices_nv20(vertex_in, vertex_out);
+  } else {
+    // For other card types, use existing conversion
+    convert_vertices(vertex_in, vertex_out);
+  }
+}
+
+BX_GEFORCE_SMF Bit32u bx_geforce_c::texture_get_cubemap_texel(int unit, float x, float y, float z)
+{
+  // Only process if this is a valid texture unit and cube mapping is enabled
+  if (unit >= 4 || !BX_GEFORCE_THIS nv20.texture_unit[unit].cube_mapping) {
+    return 0;
+  }
+  
+  // Determine which face to sample based on the largest magnitude component
+  float absX = fabs(x);
+  float absY = fabs(y);
+  float absZ = fabs(z);
+  
+  int face = 0;
+  float s = 0.0f, t = 0.0f;
+  
+  // Select face and compute texture coordinates
+  if (absX >= absY && absX >= absZ) {
+    // X face, positive or negative
+    if (x > 0) {
+      // Positive X face
+      face = 0;
+      s = -z / absX;
+      t = -y / absX;
+    } else {
+      // Negative X face
+      face = 1;
+      s = z / absX;
+      t = -y / absX;
+    }
+  } else if (absY >= absX && absY >= absZ) {
+    // Y face, positive or negative
+    if (y > 0) {
+      // Positive Y face
+      face = 2;
+      s = x / absY;
+      t = z / absY;
+    } else {
+      // Negative Y face
+      face = 3;
+      s = x / absY;
+      t = -z / absY;
+    }
+  } else {
+    // Z face, positive or negative
+    if (z > 0) {
+      // Positive Z face
+      face = 4;
+      s = x / absZ;
+      t = -y / absZ;
+    } else {
+      // Negative Z face
+      face = 5;
+      s = -x / absZ;
+      t = -y / absZ;
+    }
+  }
+  
+  // Convert from [-1,1] to [0,1]
+  s = (s + 1.0f) * 0.5f;
+  t = (t + 1.0f) * 0.5f;
+  
+  // Get texture dimensions
+  Bit32u width = BX_GEFORCE_THIS texture[unit].sizer;
+  Bit32u height = BX_GEFORCE_THIS texture[unit].sizet;
+  
+  // Convert to texture coordinates
+  int tx = (int)(s * width);
+  int ty = (int)(t * height);
+  
+  // Apply texture wrapping
+  tx = tx % width;
+  ty = ty % height;
+  if (tx < 0) tx += width;
+  if (ty < 0) ty += height;
+  
+  // Calculate offset to the face
+  // In cube maps, faces are stored sequentially
+  tx += face * width;
+  
+  // Get texel using the existing function
+  return texture_get_texel(unit, tx, ty);
+}
+
+BX_GEFORCE_SMF void bx_geforce_c::execute_nv20_3d(Bit32u chid, Bit32u method, Bit32u param)
+{
+  BX_DEBUG(("NV20_3D_CLASS method 0x%04x with param 0x%08x", method, param));
+  
+  switch (method) {
+    // Vertex program methods
+    case 0x1E94: // VP_UPLOAD_FROM_ID
+      BX_GEFORCE_THIS nv20.vertex_program.upload_instruction_slot = param;
+      BX_GEFORCE_THIS nv20.vertex_program.upload_instruction_component = 0;
+      BX_DEBUG(("VP_UPLOAD_FROM_ID: Instruction slot set to %d", param));
+      break;
+      
+    case 0x1E98: // VP_UPLOAD_INST
+      {
+        Bit32u slot = BX_GEFORCE_THIS nv20.vertex_program.upload_instruction_slot;
+        Bit32u comp = BX_GEFORCE_THIS nv20.vertex_program.upload_instruction_component;
+        
+        // Store the instruction component
+        BX_GEFORCE_THIS nv20.vertex_program.instructions[slot][comp] = param;
+        BX_DEBUG(("VP_UPLOAD_INST: Instruction[%d][%d] = 0x%08X", slot, comp, param));
+        
+        // Move to next component or instruction
+        comp++;
+        if (comp >= 4) {
+          comp = 0;
+          slot++;
+        }
+        
+        BX_GEFORCE_THIS nv20.vertex_program.upload_instruction_slot = slot;
+        BX_GEFORCE_THIS nv20.vertex_program.upload_instruction_component = comp;
+      }
+      break;
+      
+    case 0x1E9C: // VP_START_FROM_ID
+      BX_GEFORCE_THIS nv20.vertex_program.program_start = param;
+      BX_DEBUG(("VP_START_FROM_ID: Start instruction set to %d", param));
+      break;
+      
+    case 0x1EA0: // VP_UPLOAD_CONST_ID
+      BX_GEFORCE_THIS nv20.vertex_program.upload_constant_slot = param;
+      BX_GEFORCE_THIS nv20.vertex_program.upload_constant_component = 0;
+      BX_DEBUG(("VP_UPLOAD_CONST_ID: Constant slot set to %d", param));
+      break;
+      
+    case 0x1EA4: // VP_UPLOAD_CONST
+      {
+        Bit32u slot = BX_GEFORCE_THIS nv20.vertex_program.upload_constant_slot;
+        Bit32u comp = BX_GEFORCE_THIS nv20.vertex_program.upload_constant_component;
+        
+        // Store the constant component
+        BX_GEFORCE_THIS nv20.vertex_program.constants[slot][comp] = param;
+        BX_DEBUG(("VP_UPLOAD_CONST: Constant[%d][%d] = 0x%08X", slot, comp, param));
+        
+        // Move to next component or constant
+        comp++;
+        if (comp >= 4) {
+          comp = 0;
+          slot++;
+        }
+        
+        BX_GEFORCE_THIS nv20.vertex_program.upload_constant_slot = slot;
+        BX_GEFORCE_THIS nv20.vertex_program.upload_constant_component = comp;
+      }
+      break;
+      
+    case 0x1EA8: // VP_ENABLE
+      BX_GEFORCE_THIS nv20.vertex_program.enabled = (param != 0);
+      BX_DEBUG(("VP_ENABLE: Vertex program %s", param ? "enabled" : "disabled"));
+      break;
+    
+    // Register combiners (pixel shader) methods
+    case 0x1E60: // RC_ENABLE
+      BX_GEFORCE_THIS nv20.register_combiners.enabled = (param != 0);
+      BX_DEBUG(("RC_ENABLE: Register combiners %s", param ? "enabled" : "disabled"));
+      break;
+      
+    case 0x1E64: // RC_STAGES
+      BX_GEFORCE_THIS nv20.register_combiners.stages = param & 0x0F; // Max 8 stages (0-7)
+      BX_DEBUG(("RC_STAGES: Register combiners set to %d stages", param & 0x0F));
+      break;
+    
+    // Combiner stage configuration (0x280-0x2BC)
+    case 0x0280: case 0x0284: case 0x0288: case 0x028C:
+    case 0x0290: case 0x0294: case 0x0298: case 0x029C:
+    case 0x02A0: case 0x02A4: case 0x02A8: case 0x02AC:
+    case 0x02B0: case 0x02B4: case 0x02B8: case 0x02BC:
+      {
+        // Calculate which stage and register we're modifying
+        Bit32u stage = (method - 0x0280) / 16;
+        Bit32u reg = (method - 0x0280) % 16 / 4;
+        
+        // Store the register value
+        BX_GEFORCE_THIS nv20.register_combiners.combiner_stage[stage].input_mapping[reg] = param;
+        BX_DEBUG(("RC_STAGE_CONFIG: Stage %d, Register %d = 0x%08X", stage, reg, param));
+      }
+      break;
+    
+    // Texture enable methods (0x1D60-0x1D6C)
+    case 0x1D60: case 0x1D64: case 0x1D68: case 0x1D6C:
+      {
+        Bit32u unit = (method - 0x1D60) / 4;
+        BX_GEFORCE_THIS nv20.texture_unit[unit].enabled = (param != 0);
+        BX_DEBUG(("TEX_ENABLE: Texture unit %d %s", unit, param ? "enabled" : "disabled"));
+      }
+      break;
+      
+    // Cube mapping enable methods (0x1D70-0x1D7C)
+    case 0x1D70: case 0x1D74: case 0x1D78: case 0x1D7C:
+      {
+        Bit32u unit = (method - 0x1D70) / 4;
+        BX_GEFORCE_THIS nv20.texture_unit[unit].cube_mapping = (param != 0);
+        BX_DEBUG(("TEX_CUBE_ENABLE: Texture unit %d cube mapping %s", 
+                  unit, param ? "enabled" : "disabled"));
+      }
+      break;
+      
+    default:
+      BX_DEBUG(("Unhandled NV20_3D_CLASS method 0x%04X with param 0x%08X", method, param));
+      break;
+  }
+}
+
 void bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit32u param)
 {
   BX_DEBUG(("execute_command: chid 0x%02x, subc 0x%02x, method 0x%03x, param 0x%08x",
     chid, subc, method, param));
+
+  if (BX_GEFORCE_THIS card_type == 0x20 && 
+      BX_GEFORCE_THIS chs[chid].schs[subc].engine == NV20_3D_CLASS) {
+    execute_nv20_3d(chid, method, param);
+    return;
+  }
+
   if (method == 0x000) {
     if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == 0x01) {
       Bit8u cls = ramin_read32(BX_GEFORCE_THIS chs[chid].schs[subc].object);
@@ -2631,6 +3418,9 @@ void bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit3
     } else {
       BX_GEFORCE_THIS chs[chid].schs[subc].object = (context & 0xFFFFF) << 4;
       BX_GEFORCE_THIS chs[chid].schs[subc].engine = context >> 20 & 0x7;
+    }
+    if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == NV20_3D_CLASS) {
+      BX_DEBUG(("Assigned NV20_3D_CLASS to channel %d subchannel %d", chid, subc));
     }
     if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == 0x01) {
       Bit8u cls = ramin_read32(BX_GEFORCE_THIS chs[chid].schs[subc].object);
