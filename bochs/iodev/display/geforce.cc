@@ -76,6 +76,7 @@ enum
     GEFORCE_3,
     GEFORCE_FX_5900,
     GEFORCE_6800,
+    GEFORCE_7600_GS,
     MAX_GEFORCE_TYPES
 };
 
@@ -86,6 +87,7 @@ void geforce_init_options(void)
     "geforce3",
     "geforcefx5900",
     "geforce6800",
+    "geforce7600gs",
     NULL
   };
 
@@ -170,6 +172,9 @@ bool bx_geforce_c::init_vga_extension(void)
   } else if (model_enum == GEFORCE_6800) {
     BX_GEFORCE_THIS card_type = 0x40;
     model_string = "GeForce 6800 GT";
+  } else if (model_enum == GEFORCE_7600_GS) {
+    BX_GEFORCE_THIS card_type = 0x4b;
+    model_string = "GeForce 7600 GS";
   } else {
     model_string = nullptr;
     BX_GEFORCE_THIS card_type = 0x00;
@@ -409,6 +414,10 @@ void bx_geforce_c::svga_init_members()
     BX_GEFORCE_THIS bar2_size = 0x00080000;
     // Matches real hardware with exception of disabled TV out
     BX_GEFORCE_THIS straps0_primary_original = (0x7FF86C6B | 0x00000180);
+  } else if (BX_GEFORCE_THIS card_type == 0x4b) {
+    BX_GEFORCE_THIS s.memsize = 256 * 1024 * 1024;
+    BX_GEFORCE_THIS bar2_size = 0x01000000;
+    BX_GEFORCE_THIS straps0_primary_original = (0xA340EE87 | 0x00000180);
   } else {
     if (BX_GEFORCE_THIS card_type == 0x35)
       BX_GEFORCE_THIS s.memsize = 128 * 1024 * 1024;
@@ -2746,6 +2755,8 @@ Bit32u bx_geforce_c::register_read32(Bit32u address)
   if (address == 0x0) {
     if (BX_GEFORCE_THIS card_type == 0x20)
       value = 0x020200A5;
+    else if (BX_GEFORCE_THIS card_type == 0x4b)
+      value = 0x04B200B1;
     else
       value = BX_GEFORCE_THIS card_type << 20;
   } else if (address == 0x100) {
@@ -3173,6 +3184,9 @@ void bx_geforce_c::svga_init_pcihandlers(void)
   if (BX_GEFORCE_THIS card_type == 0x20) {
     devid = 0x0202;
     revid = 0xA3;
+  } else if (BX_GEFORCE_THIS card_type == 0x4b) {
+    devid = 0x02E1;
+    revid = 0xA2;
   } else if (BX_GEFORCE_THIS card_type == 0x35) {
     devid = 0x0331;
   } else if (BX_GEFORCE_THIS card_type == 0x40) {
@@ -3187,6 +3201,7 @@ void bx_geforce_c::svga_init_pcihandlers(void)
                                geforce_mem_write_handler);
   if (BX_GEFORCE_THIS card_type != 0x35) {
     if (BX_GEFORCE_THIS card_type == 0x20)
+      if (BX_GEFORCE_THIS card_type == 0x4b)
       BX_GEFORCE_THIS pci_conf[0x18] = 0x08;
     BX_GEFORCE_THIS init_bar_mem(2, BX_GEFORCE_THIS bar2_size, geforce_mem_read_handler,
                                  geforce_mem_write_handler);
@@ -3206,6 +3221,11 @@ void bx_geforce_c::svga_init_pcihandlers(void)
   } else if (BX_GEFORCE_THIS card_type == 0x40) {
     BX_GEFORCE_THIS pci_conf[0x2e] = 0x96;
     BX_GEFORCE_THIS pci_conf[0x2f] = 0x29;
+  } else if (BX_GEFORCE_THIS card_type == 0x4b) {
+    BX_GEFORCE_THIS pci_conf[0x2c] = 0x58;
+    BX_GEFORCE_THIS pci_conf[0x2d] = 0x14;
+    BX_GEFORCE_THIS pci_conf[0x2e] = 0x28;
+    BX_GEFORCE_THIS pci_conf[0x2f] = 0x34;
   }
   BX_GEFORCE_THIS pci_conf[0x40] = BX_GEFORCE_THIS pci_conf[0x2c];
   BX_GEFORCE_THIS pci_conf[0x41] = BX_GEFORCE_THIS pci_conf[0x2d];
@@ -3231,6 +3251,28 @@ void bx_geforce_c::svga_init_pcihandlers(void)
   BX_GEFORCE_THIS pci_conf[0x61] = 0x44;
   BX_GEFORCE_THIS pci_conf[0x62] = 0x02;
   BX_GEFORCE_THIS pci_conf[0x63] = 0x00;
+
+  if (BX_GEFORCE_THIS card_type == 0x4b) {
+    BX_GEFORCE_THIS pci_conf[0x06] = 0xB0;
+    BX_GEFORCE_THIS pci_conf[0x07] = 0x02;
+    BX_GEFORCE_THIS pci_conf[0x34] = 0x60;
+    BX_GEFORCE_THIS pci_conf[0x44] = 0x02;
+    BX_GEFORCE_THIS pci_conf[0x45] = 0x00;
+    BX_GEFORCE_THIS pci_conf[0x46] = 0x30;
+    BX_GEFORCE_THIS pci_conf[0x47] = 0x00;
+    BX_GEFORCE_THIS pci_conf[0x48] = 0x07;
+    BX_GEFORCE_THIS pci_conf[0x49] = 0x00;
+    BX_GEFORCE_THIS pci_conf[0x4a] = 0x00;
+    BX_GEFORCE_THIS pci_conf[0x4b] = 0x1F;
+    BX_GEFORCE_THIS pci_conf[0x54] = 0x01;
+    BX_GEFORCE_THIS pci_conf[0x55] = 0x00;
+    BX_GEFORCE_THIS pci_conf[0x56] = 0x00;
+    BX_GEFORCE_THIS pci_conf[0x57] = 0x00;
+    BX_GEFORCE_THIS pci_conf[0x60] = 0x01;
+    BX_GEFORCE_THIS pci_conf[0x61] = 0x44;
+    BX_GEFORCE_THIS pci_conf[0x62] = 0x02;
+    BX_GEFORCE_THIS pci_conf[0x63] = 0x00;
+  }
 }
 
 void bx_geforce_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_len)
