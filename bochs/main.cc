@@ -1236,7 +1236,7 @@ void bx_init_hardware()
   BX_INFO(("  Fast function calls: %s", BX_FAST_FUNC_CALL?"yes":"no"));
   BX_INFO(("  Handlers Chaining speedups: %s", BX_SUPPORT_HANDLERS_CHAINING_SPEEDUPS?"yes":"no"));
   BX_INFO(("Devices configuration"));
-  BX_INFO(("  PCI support: %s", BX_SUPPORT_PCI?"i440FX i430FX i440BX":"no"));
+  BX_INFO(("  PCI support: %s", BX_SUPPORT_PCI?"i440FX i430FX i440BX i82875P":"no"));
 #if BX_NETWORKING
   BX_INFO(("  Network devices support:%s%s",
            BX_SUPPORT_NE2K?" NE2000":"", BX_SUPPORT_E1000?" E1000":""));
