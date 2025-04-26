@@ -76,6 +76,10 @@ extern "C" {
 #define BX_PLUGIN_IOAPIC    "ioapic"
 #define BX_PLUGIN_HPET      "hpet"
 #define BX_PLUGIN_VOODOO    "voodoo"
+#define BX_PLUGIN_I82875P       "i82875p"
+#define BX_PLUGIN_I82875P_AGP   'i82875p_agp'
+#define BX_PLUGIN_I6300ESB_LPC  "i6300esb_lpc"
+#define BX_PLUGIN_I6300ESB_WDOG "i6300esb_wdog"
 
 
 #define BX_REGISTER_DEVICE_DEVMODEL(a,b,c,d) pluginRegisterDeviceDevmodel(a,b,c,d)

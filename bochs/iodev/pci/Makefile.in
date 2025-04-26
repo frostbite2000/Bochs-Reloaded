@@ -1,0 +1,124 @@
+# Copyright (C) 2001-2025  The Bochs Project
+#
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation; either
+# version 2 of the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this library; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+
+# Makefile for the iodev/pci directory of bochs
+#
+# To make a special copy of bochs that will NOT use the system X11 header/library
+# files, use './configure --with-local-x11'.
+
+@SUFFIX_LINE@
+
+prefix          = @prefix@
+exec_prefix     = @exec_prefix@
+srcdir          = @srcdir@
+
+bindir          = @bindir@
+libdir          = @libdir@
+datarootdir     = @datarootdir@
+mandir          = @mandir@
+man1dir         = $(mandir)/man1
+man5dir         = $(mandir)/man5
+docdir          = $(datarootdir)/doc/bochs
+sharedir        = $(datarootdir)/bochs
+localedir       = $(datarootdir)/locale
+
+SHELL = @SHELL@
+
+@SET_MAKE@
+
+CC = @CC@
+CXX = @CXX@
+CFLAGS = $(BX_INCDIRS) @CFLAGS@  @GUI_CFLAGS@
+CXXFLAGS = $(BX_INCDIRS) @CXXFLAGS@  @GUI_CXXFLAGS@
+
+LDFLAGS = @LDFLAGS@
+LIBS = @LIBS@
+RANLIB = @RANLIB@
+
+BX_INCDIRS = -I.. -I../.. -I$(srcdir)/.. -I$(srcdir)/../.. -I../../@INSTRUMENT_DIR@ -I$(srcdir)/../../@INSTRUMENT_DIR@
+LOCAL_CXXFLAGS = $(MCH_CFLAGS)
+
+PCIDEV_OBJS = pci.o pci_ide.o pci2isa.o pcidev.o i82875p.o i6300esb.o
+PCIBRIDGE_OBJS = pci.o pci2isa.o pcidev.o i82875p.o
+
+all: libpci.a
+
+plugins: @PLUGIN_TARGET_2@
+
+libpci.a: $(PCIDEV_OBJS)
+	@RMCOMMAND@ libpci.a
+	@MAKELIB@ $(PCIDEV_OBJS)
+	$(RANLIB) libpci.a
+
+libpcibridge.a: $(PCIBRIDGE_OBJS)
+	@RMCOMMAND@ libpcibridge.a
+	@MAKELIB@ $(PCIBRIDGE_OBJS)
+	$(RANLIB) libpcibridge.a
+
+##### PLUGINS #####
+
+libi82875p.la: i82875p.lo
+	$(LIBTOOL) --mode=link $(CXX) -module $< -o $@ -rpath $(libdir)
+
+libi6300esb.la: i6300esb.lo
+	$(LIBTOOL) --mode=link $(CXX) -module $< -o $@ -rpath $(libdir)
+
+libi6300esb_lpc.la: i6300esb.lo
+	$(LIBTOOL) --mode=link $(CXX) -module $< -o $@ -rpath $(libdir)
+
+libi6300esb_wdog.la: i6300esb.lo
+	$(LIBTOOL) --mode=link $(CXX) -module $< -o $@ -rpath $(libdir)
+
+libi82875p_agp.la: i82875p.lo
+	$(LIBTOOL) --mode=link $(CXX) -module $< -o $@ -rpath $(libdir)
+
+# special rules for pci devices which need additional libraries
+# and special rules for the plugins
+
+#### DEPENDENCIES #####
+
+pci.o: pci.cc pci.h pcidev.h
+	$(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+pci_ide.o: pci_ide.cc pci.h pcidev.h
+	$(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+pci2isa.o: pci2isa.cc pci.h pcidev.h
+	$(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+pcidev.o: pcidev.cc pci.h pcidev.h
+	$(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+i82875p.o: i82875p.cc i82875p.h pcidev.h 
+	$(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+i82875p.lo: i82875p.cc i82875p.h pcidev.h
+	$(LIBTOOL) --mode=compile $(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+i6300esb.o: i6300esb.cc i6300esb.h pcidev.h
+	$(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+i6300esb.lo: i6300esb.cc i6300esb.h pcidev.h
+	$(LIBTOOL) --mode=compile $(CXX) -c $(CXXFLAGS) $(LOCAL_CXXFLAGS) $< -o $@
+
+#### CLEAN RULES #####
+
+clean:
+	@RMCOMMAND@ *.o
+	@RMCOMMAND@ *.a
+
+dist-clean: clean
+	@RMCOMMAND@ Makefile

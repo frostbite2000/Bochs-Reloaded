@@ -193,7 +193,10 @@ void bx_devices_c::init(BX_MEM_C *newmem)
       pci.advopts = (BX_PCI_ADVOPT_NOHPET | BX_PCI_ADVOPT_NOACPI | BX_PCI_ADVOPT_NOAGP);
     } else if (chipset == BX_PCI_CHIPSET_I440FX) {
       pci.advopts = BX_PCI_ADVOPT_NOAGP;
-    } else {
+    } else if (chipset == BX_PCI_CHIPSET_I440BX) {
+      pci.advopts = 0;
+    } else if (chipset == BX_PCI_CHIPSET_I82875P) {
+      // The i82875P supports advanced options similar to the i440BX
       pci.advopts = 0;
     }
     options = SIM->get_param_string(BXPN_PCI_ADV_OPTS)->getptr();
@@ -207,14 +210,8 @@ void bx_devices_c::init(BX_MEM_C *newmem)
         }
       } else if (!strcmp(argv[i], "nohpet")) {
         pci.advopts |= BX_PCI_ADVOPT_NOHPET;
-      } else if (!strcmp(argv[i], "altdevmap")) {
-        if (chipset == BX_PCI_CHIPSET_I440FX) {
-          pci.advopts |= BX_PCI_ADVOPT_ALTDEVMAP;
-        } else {
-          BX_ERROR(("Alternative device map not supported by PCI chipset"));
-        }
       } else if (!strcmp(argv[i], "noagp")) {
-        if (chipset == BX_PCI_CHIPSET_I440BX) {
+        if ((chipset == BX_PCI_CHIPSET_I440BX) || (chipset == BX_PCI_CHIPSET_I82875P)) {
           pci.advopts |= BX_PCI_ADVOPT_NOAGP;
         } else {
           BX_ERROR(("Disabling AGP not supported by PCI chipset"));
@@ -227,6 +224,24 @@ void bx_devices_c::init(BX_MEM_C *newmem)
     }
     PLUG_load_plugin(pci, PLUGTYPE_CORE);
     PLUG_load_plugin(pci2isa, PLUGTYPE_CORE);
+
+    if (chipset == BX_PCI_CHIPSET_I82875P) {
+      // Load i82875P host bridge
+      PLUG_load_plugin(i82875p, PLUGTYPE_STANDARD);
+      
+      // Load i6300ESB LPC bridge
+      PLUG_load_plugin(i6300esb_lpc, PLUGTYPE_STANDARD);
+      
+      // Load i6300ESB watchdog if enabled
+      if (SIM->get_param_bool(BXPN_I6300ESB_WDOG_ENABLED)->get()) {
+        PLUG_load_plugin(i6300esb_wdog, PLUGTYPE_STANDARD);
+      }
+      
+      // Load AGP bridge if not disabled
+      if ((pci.advopts & BX_PCI_ADVOPT_NOAGP) == 0) {
+        PLUG_load_plugin(i82875p_agp, PLUGTYPE_STANDARD);
+      }
+    }
 #if BX_SUPPORT_PCIUSB
     if ((chipset == BX_PCI_CHIPSET_I440FX) ||
         (chipset == BX_PCI_CHIPSET_I440BX)) {
