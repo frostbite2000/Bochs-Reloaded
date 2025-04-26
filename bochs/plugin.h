@@ -77,7 +77,7 @@ extern "C" {
 #define BX_PLUGIN_HPET      "hpet"
 #define BX_PLUGIN_VOODOO    "voodoo"
 #define BX_PLUGIN_I82875P       "i82875p"
-#define BX_PLUGIN_I82875P_AGP   'i82875p_agp'
+#define BX_PLUGIN_I82875P_AGP   "i82875p_agp"
 #define BX_PLUGIN_I6300ESB_LPC  "i6300esb_lpc"
 #define BX_PLUGIN_I6300ESB_WDOG "i6300esb_wdog"
 
@@ -450,7 +450,6 @@ PLUGIN_ENTRY_FOR_MODULE(hpet);
 PLUGIN_ENTRY_FOR_MODULE(voodoo);
 PLUGIN_ENTRY_FOR_MODULE(i82875p);
 PLUGIN_ENTRY_FOR_MODULE(i82875p_agp);
-PLUGIN_ENTRY_FOR_MODULE(i6300esb);
 PLUGIN_ENTRY_FOR_MODULE(i6300esb_lpc);
 PLUGIN_ENTRY_FOR_MODULE(i6300esb_wdog);
 // config interface plugins

@@ -53,8 +53,6 @@ PLUGIN_ENTRY_FOR_MODULE(i82875p)
   }
 }
 
-// AGP bridge device plugin entry point
-
 PLUGIN_ENTRY_FOR_MODULE(i82875p_agp)
 {
   if (mode == PLUGIN_INIT) {
