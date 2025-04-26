@@ -961,12 +961,12 @@ void bx_geforce_c::svga_write(Bit32u address, Bit32u value, unsigned io_len)
         BX_GEFORCE_THIS crtc.reg[BX_GEFORCE_THIS crtc.index] = value;
       } else {
         BX_GEFORCE_THIS svga_write_crtc(address, BX_GEFORCE_THIS crtc.index, value);
+        if (BX_GEFORCE_THIS crtc.index == 0x25 ||
+            BX_GEFORCE_THIS crtc.index == 0x2D ||
+            BX_GEFORCE_THIS crtc.index == 0x41) {
+          BX_GEFORCE_THIS calculate_retrace_timing();
+        }
         return;
-      }
-      if (BX_GEFORCE_THIS crtc.index == 0x25 ||
-          BX_GEFORCE_THIS crtc.index == 0x2D ||
-          BX_GEFORCE_THIS crtc.index == 0x41) {
-        BX_GEFORCE_THIS calculate_retrace_timing();
       }
       break;
     default:
@@ -2025,7 +2025,7 @@ void bx_geforce_c::dma_write64(Bit32u object, Bit32u address, Bit64u value)
     BX_PANIC(("dma_write64: unknown DMA target 0x%02x", target));
 }
 
-Bit32u bx_geforce_c::ramht_lookup(Bit32u handle, Bit32u chid)
+void bx_geforce_c::ramht_lookup(Bit32u handle, Bit32u chid, Bit32u* object, Bit8u* engine)
 {
   Bit32u ramht_addr = (BX_GEFORCE_THIS fifo_ramht & 0xFFF) << 8;
   Bit32u ramht_bits = (BX_GEFORCE_THIS fifo_ramht >> 16 & 0xFF) + 9;
@@ -2037,7 +2037,7 @@ Bit32u bx_geforce_c::ramht_lookup(Bit32u handle, Bit32u chid)
     hash ^= (x & ((1 << ramht_bits) - 1));
     x >>= ramht_bits;
   }
-  hash ^= chid << (ramht_bits - 4);
+  hash ^= (chid & 0xF) << (ramht_bits - 4);
   hash = hash << 3;
 
   Bit32u it = hash;
@@ -2045,8 +2045,27 @@ Bit32u bx_geforce_c::ramht_lookup(Bit32u handle, Bit32u chid)
   do {
     if (ramin_read32(ramht_addr + it) == handle) {
       Bit32u context = ramin_read32(ramht_addr + it + 4);
-      BX_DEBUG(("ramht_lookup: 0x%08x -> 0x%08x, steps: %d", handle, context, steps));
-      return context;
+      Bit32u ctx_chid;
+      if (BX_GEFORCE_THIS card_type < 0x40)
+        ctx_chid = context >> 24 & 0x1F;
+      else
+        ctx_chid = context >> 23 & 0x1F;
+      if (chid == ctx_chid) {
+        BX_DEBUG(("ramht_lookup: 0x%08x -> 0x%08x, steps: %d", handle, context, steps));
+        if (object) {
+          if (BX_GEFORCE_THIS card_type < 0x40)
+            *object = (context & 0xFFFF) << 4;
+          else
+            *object = (context & 0xFFFFF) << 4;
+        }
+        if (engine) {
+          if (BX_GEFORCE_THIS card_type < 0x40)
+            *engine = context >> 16 & 0xFF;
+          else
+            *engine = context >> 20 & 0x7;
+        }
+        return;
+      }
     }
     steps++;
     it += 8;
@@ -2055,7 +2074,6 @@ Bit32u bx_geforce_c::ramht_lookup(Bit32u handle, Bit32u chid)
   } while (it != hash);
 
   BX_PANIC(("ramht_lookup failed for 0x%08x", handle));
-  return 0;
 }
 
 void bx_geforce_c::gdi_fillrect(Bit32u chid, bool clipped)
@@ -2261,7 +2279,12 @@ void bx_geforce_c::iifc(Bit32u chid)
       }
       if (BX_GEFORCE_THIS chs[chid].iifc_color_bytes == 4) {
         Bit32u color = dma_read32(BX_GEFORCE_THIS chs[chid].iifc_palette, symbol * 4);
-        dma_write32(BX_GEFORCE_THIS chs[chid].s2d_img_dst, draw_offset + x * 4, color);
+        if (BX_GEFORCE_THIS chs[chid].s2d_color_bytes == 2) {
+          color = ((color >> 19 & 0x1F) << 11) | ((color >> 10 & 0x3F) << 5) | (color >> 3 & 0x1F);
+          dma_write16(BX_GEFORCE_THIS chs[chid].s2d_img_dst, draw_offset + x * 2, color);
+        }
+        else if (BX_GEFORCE_THIS chs[chid].s2d_color_bytes == 4)
+          dma_write32(BX_GEFORCE_THIS chs[chid].s2d_img_dst, draw_offset + x * 4, color);
       }
       symbol_index++;
     }
@@ -2615,6 +2638,7 @@ void bx_geforce_c::execute_iifc(Bit32u chid, Bit32u method, Bit32u param)
 
 void bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit32u param)
 {
+  bool software_method = false;
   BX_DEBUG(("execute_command: chid 0x%02x, subc 0x%02x, method 0x%03x, param 0x%08x",
     chid, subc, method, param));
   if (method == 0x000) {
@@ -2633,14 +2657,9 @@ void bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit3
         }
       }
     }
-    Bit32u context = ramht_lookup(param, chid);
-    if (BX_GEFORCE_THIS card_type < 0x40) {
-      BX_GEFORCE_THIS chs[chid].schs[subc].object = (context & 0xFFFF) << 4;
-      BX_GEFORCE_THIS chs[chid].schs[subc].engine = context >> 16 & 0xFF;
-    } else {
-      BX_GEFORCE_THIS chs[chid].schs[subc].object = (context & 0xFFFFF) << 4;
-      BX_GEFORCE_THIS chs[chid].schs[subc].engine = context >> 20 & 0x7;
-    }
+    ramht_lookup(param, chid,
+      &BX_GEFORCE_THIS chs[chid].schs[subc].object,
+      &BX_GEFORCE_THIS chs[chid].schs[subc].engine);
     if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == 0x01) {
       Bit8u cls = ramin_read32(BX_GEFORCE_THIS chs[chid].schs[subc].object);
       if (cls == 0x62) {
@@ -2655,13 +2674,17 @@ void bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit3
             ramin_read32(BX_GEFORCE_THIS chs[chid].schs[subc].object + 0xC) << 4;
         }
       }
+    } else if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == 0x00) {
+      software_method = true;
+    } else {
+      BX_DEBUG(("execute_command: unknown engine %d", BX_GEFORCE_THIS chs[chid].schs[subc].engine));
     }
   } else if (method == 0x014) {
     BX_GEFORCE_THIS fifo_cache1_ref_cnt = param;
   } else if (method >= 0x040) {
     if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == 0x01) {
       if (method >= 0x060 && method < 0x080)
-        param = (ramht_lookup(param, chid) & 0xFFFF) << 4;
+        ramht_lookup(param, chid, &param, nullptr);
       if (method == 0x041) {
         BX_GEFORCE_THIS chs[chid].notify_pending = true;
         BX_GEFORCE_THIS chs[chid].notify_type = param;
@@ -2704,9 +2727,13 @@ void bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit3
             BX_PANIC(("execute_command: interrupt should be triggered"));
         }
       }
+    } else if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == 0x00) {
+      software_method = true;
+    } else {
+      BX_DEBUG(("execute_command: unknown engine %d", BX_GEFORCE_THIS chs[chid].schs[subc].engine));
     }
   }
-  if (BX_GEFORCE_THIS chs[chid].schs[subc].engine == 0x00) {
+  if (software_method) {
     BX_GEFORCE_THIS fifo_intr |= 0x00000001;
     update_irq_level();
     BX_GEFORCE_THIS fifo_cache1_pull0 |= 0x00000100;
@@ -2715,7 +2742,7 @@ void bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit3
     BX_GEFORCE_THIS fifo_cache1_put += 4;
     if (BX_GEFORCE_THIS fifo_cache1_put == GEFORCE_CACHE1_SIZE * 4)
       BX_GEFORCE_THIS fifo_cache1_put = 0;
-    BX_DEBUG(("execute_command: software engine"));
+    BX_DEBUG(("execute_command: software method"));
   }
 }
 
