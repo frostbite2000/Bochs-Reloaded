@@ -933,6 +933,7 @@ void bx_init_options()
       "Select PCI chipset to emulate",
       pci_chipset_names,
       BX_PCI_CHIPSET_I440FX,
+      BX_PCI_CHIPSET_I430FX,
       BX_PCI_CHIPSET_I82875P);
   deplist->add(pci_chipset);
   // pci slots
