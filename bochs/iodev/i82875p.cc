@@ -91,7 +91,8 @@ void bx_i82875p_c::init(void)
   unsigned i;
   
   // Register the host bridge (device 0:0.0)
-  init_pci_conf(0x8086, 0x2578, 0x02, 0x060000, 0x00);
+  // The last parameter is the mandatory programming interface
+  init_pci_conf(0x8086, 0x2578, 0x02, 0x060000, 0x00, 0x00);
 
   // Initialize the RAM mapping
   ram_size = SIM->get_param_num(BXPN_MEM_SIZE)->get();
@@ -218,7 +219,6 @@ void bx_i82875p_c::after_restore_state(void)
 void bx_i82875p_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_len)
 {
   Bit8u value8, oldval;
-  unsigned area;
 
   if ((address >= 0x10) && (address < 0x34))
     return;
@@ -353,9 +353,9 @@ void bx_i82875p_c::map_pam_memory(Bit8u value)
       DEV_mem_set_memory_type(BX_MEM_AREA_F0000, read_l, write_l);
     } else {
       // PAM1-6: C0000-D7FFF in 16KB chunks
-      unsigned area = (i - 1) * 2 + BX_MEM_AREA_C0000;
+      memory_area_t area = (memory_area_t)((i - 1) * 2 + BX_MEM_AREA_C0000);
       DEV_mem_set_memory_type(area, read_l, write_l);
-      DEV_mem_set_memory_type(area + 1, read_u, write_u);
+      DEV_mem_set_memory_type((memory_area_t)(area + 1), read_u, write_u);
     }
   }
 }
@@ -407,7 +407,8 @@ bx_i82875p_agp_c::~bx_i82875p_agp_c()
 void bx_i82875p_agp_c::init(void)
 {
   // Register the PCI-AGP bridge (device 0:1.0)
-  init_pci_conf(0x8086, 0x2579, 0x02, 0x060400, 0x01);
+  // The last parameter is the mandatory programming interface
+  init_pci_conf(0x8086, 0x2579, 0x02, 0x060400, 0x01, 0x00);
   pci_conf[0x06] = 0x20;
   pci_conf[0x07] = 0x02;
   pci_conf[0x1e] = 0xa0;

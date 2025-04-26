@@ -87,7 +87,8 @@ bx_i6300esb_lpc_c::~bx_i6300esb_lpc_c()
 void bx_i6300esb_lpc_c::init(void)
 {
   // Register 82801 LPC bridge (i6300ESB southbridge is based on 82801) (device 1:31.0)
-  init_pci_conf(0x8086, 0x25a1, 0x01, 0x060100, 0x80);
+  // The last parameter is the mandatory programming interface
+  init_pci_conf(0x8086, 0x25a1, 0x01, 0x060100, 0x80, 0x00);
   
   // Register I/O handlers for port access
   DEV_register_iowrite_handler(this, write_handler, 0x00B2, "i6300ESB LPC bridge", 1);
@@ -279,8 +280,8 @@ void bx_i6300esb_lpc_c::map_bios(Bit32u addr, bool readonly)
   // appropriate read/write permissions
   BX_DEBUG(("mapping BIOS at 0x%08x%s", addr, readonly ? " (read-only)" : ""));
   
-  // Get the BIOS ROM mapped by the base firmware
-  char *bios = (char*)SIM->get_param_string(BXPN_BIOS_ROM_PATH)->getptr();
+  // Use BXPN_ROM_PATH instead of BXPN_BIOS_ROM_PATH which was not found
+  char *bios = (char*)SIM->get_param_string(BXPN_ROM_PATH)->getptr();
   
   // Stub implementation - in a real implementation you'd actually map
   // the BIOS to the appropriate address in memory with the right permissions
@@ -487,7 +488,8 @@ bx_i6300esb_wdog_c::~bx_i6300esb_wdog_c()
 void bx_i6300esb_wdog_c::init(void)
 {
   // Register i6300ESB watchdog timer (device 1:5.0)
-  init_pci_conf(0x8086, 0x25ab, 0x02, 0x088000, 0x00);
+  // The last parameter is the mandatory programming interface
+  init_pci_conf(0x8086, 0x25ab, 0x02, 0x088000, 0x00, 0x00);
   
   // Reserve memory space for watchdog registers
   pci_conf[0x10] = 0x10; // Base address register
