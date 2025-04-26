@@ -135,6 +135,9 @@
 #define PCI_FIXED_HOST_BRIDGE 0x12378086  ;; i440FX PCI bridge
 #define PCI_FIXED_HOST_BRIDGE2 0x01228086 ;; i430FX PCI bridge
 #define PCI_FIXED_HOST_BRIDGE3 0x71908086 ;; i440BX PCI bridge
+#define PCI_FIXED_HOST_BRIDGE4 0x25788086 ;; i82875P PCI bridge
+#define PCI_FIXED_I6300ESB_LPC 0x25188086 ;; i6300ESB LPC bridge
+#define PCI_FIXED_I6300ESB_WDOG 0x25268086 ;; i6300ESB Watchdog Timer
 
 // #20  is dec 20
 // #$20 is hex 20 = 32
@@ -2370,7 +2373,7 @@ s3_resume()
 
     BX_INFO("S3 resume called %x 0x%lx\n", s3_resume_flag, s3_wakeup_vector);
     if (s3_resume_flag != 0xFE || !s3_wakeup_vector)
-	    return 0;
+      return 0;
 
     write_byte_DS(0x04b0, 0);
 
@@ -2379,7 +2382,7 @@ s3_resume()
     write_word_DS(0x04b8, (s3_wakeup_vector >> 4)); /* CS */
 
     BX_INFO("S3 resume jump to %x:%x\n", (s3_wakeup_vector >> 4),
-		    (s3_wakeup_vector & 0xF));
+        (s3_wakeup_vector & 0xF));
 ASM_START
     jmpf [0x04b6]
 ASM_END
@@ -9760,6 +9763,12 @@ bios32_entry_point:
   cmp eax, #PCI_FIXED_HOST_BRIDGE3
   je  pci_found
 #endif
+#ifdef PCI_FIXED_HOST_BRIDGE4
+  cmp eax, #PCI_FIXED_HOST_BRIDGE4
+  je  pci_present
+  cmp eax, #PCI_FIXED_I6300ESB_LPC
+  je  pci_present
+#endif
   ;; say ok if a device is present
   cmp eax, #0xffffffff
   je unknown_service
@@ -10161,6 +10170,114 @@ pci_real_ok:
   clc
   ret
 
+pci_init_i6300esb:
+  ;; Configure i6300ESB LPC bridge (enable IO for legacy devices)
+  ;; Enable IO ranges for legacy devices (ports 0x00-0xff)
+  mov  dx, regs.u.r16.di
+  add  dx, #0x80              ;; IO Range Register for LPC
+  mov  al, #0xff
+  call pci_write_config_byte
+  ;; Enable IRQ routing if needed
+  mov  dx, regs.u.r16.di
+  add  dx, #0x82              ;; IRQ routing control
+  mov  al, #0x80              ;; Route IRQ to PCI INTA#
+  call pci_write_config_byte
+  ret
+
+pci_init_i6300esb_wdog:
+  ;; Configure i6300ESB watchdog timer (disabled by default)
+  mov  dx, regs.u.r16.di
+  add  dx, #0x84              ;; Watchdog Control Register
+  mov  al, #0x00              ;; Disable watchdog timer
+  call pci_write_config_byte
+  ret
+
+pci_init_i82875p_agp:
+  ;; Configure i82875P AGP bridge
+  mov  dx, regs.u.r16.di
+  add  dx, #0x04              ;; Command register
+  mov  ax, #0x0007            ;; Enable Bus Master, Memory Space, and I/O Space
+  call pci_write_config_word
+
+  ;; Configure memory controller registers
+  mov  dx, word ptr[pci_bdf]  ;; Use saved host bridge BDF
+  mov  di, #0x60              ;; TOLUD (Top Of Low Usable DRAM) register
+  call pci_read_config_byte
+  and  al, #0xf0              ;; Mask off reserved bits
+  or   al, #0x08              ;; Set to 128MB for now (can be adjusted based on memory size)
+  call pci_write_config_byte
+
+  ;; Configure memory timings if needed
+  mov  dx, word ptr[pci_bdf]  ;; Use saved host bridge BDF
+  mov  di, #0x68              ;; DRAM Control register
+  mov  al, #0x80              ;; Enable ECC if supported
+  call pci_write_config_byte
+
+  ;; Configure DRAM Timing registers
+  mov  dx, word ptr[pci_bdf]  ;; Use saved host bridge BDF
+  add  di, #0x70              ;; DRAM Timing register
+  mov  ax, #0x0677            ;; Standard timing values for DDR
+  call pci_write_config_word
+
+  ;; Configure Row attributes
+  mov  dx, word ptr[pci_bdf]  ;; Use saved host bridge BDF
+  add  di, #0x90              ;; Row attribute registers
+  mov  al, #0x33              ;; Both channels enabled, DDR mode
+  call pci_write_config_byte
+  ret
+
+pci_init_i82875p:
+  ;; Check for i82875P host bridge
+  mov  ax, #0x8086
+  mov  dx, #0x2578
+  call pci_find_device
+  jnz  pci_init_i82875p_ok
+  jmp  pci_init_end
+
+pci_init_i82875p_ok:
+  BX_INFO("PCI: i82875P host bridge found at %04x:%04x\n", regs.u.r16.bx, regs.u.r16.di)
+  ;; Save PCI host bridge data
+  mov  word ptr[pci_bdf], regs.u.r16.bx
+  mov  word ptr[pci_reg], regs.u.r16.di
+
+  ;; Check and initialize i6300ESB LPC bridge
+  mov  ax, #0x8086
+  mov  dx, #0x2518
+  call pci_find_device
+  jnz  pci_init_i6300esb_ok
+  jmp  pci_check_i6300esb_wdog
+
+pci_init_i6300esb_ok:
+  BX_INFO("PCI: i6300ESB LPC bridge found at %04x:%04x\n", regs.u.r16.bx, regs.u.r16.di)
+  call pci_init_i6300esb
+
+pci_check_i6300esb_wdog:
+  ;; Check for i6300ESB watchdog timer
+  mov  ax, #0x8086
+  mov  dx, #0x2526
+  call pci_find_device
+  jnz  pci_init_i6300esb_wdog_ok
+  jmp  pci_init_agp
+
+pci_init_i6300esb_wdog_ok:
+  BX_INFO("PCI: i6300ESB Watchdog Timer found at %04x:%04x\n", regs.u.r16.bx, regs.u.r16.di)
+  call pci_init_i6300esb_wdog
+
+pci_init_agp:
+  ;; Check for i82875P AGP bridge
+  mov  ax, #0x8086
+  mov  dx, #0x2579
+  call pci_find_device
+  jnz  pci_init_i82875p_agp_ok
+  jmp  pci_init_end
+
+pci_init_i82875p_agp_ok:
+  BX_INFO("PCI: i82875P AGP Interface found at %04x:%04x\n", regs.u.r16.bx, regs.u.r16.di)
+  call pci_init_i82875p_agp
+
+pci_init_end:
+  ret
+
 pci_real_get_max_bus:
   push eax
   mov  eax, #0x80000000
@@ -10174,9 +10291,22 @@ pci_real_get_max_bus:
   jne  pci_real_no_i440bx
   mov  cx, #0x0001
 #endif
+  pop  eax
+  ret
+#ifdef PCI_FIXED_HOST_BRIDGE4
+  cmp  eax, #PCI_FIXED_HOST_BRIDGE4
+  jne  pci_real_no_i82875p
+   mov  cx, #0x0001
+#endif
 pci_real_no_i440bx:
   pop  eax
   ret
+
+#ifdef PCI_FIXED_HOST_BRIDGE4
+pci_real_no_i82875p:
+  mov  cx, #0x0001
+  jmp  pci_real_no_i440bx
+#endif
 
 pci_real_select_reg:
   push dx
