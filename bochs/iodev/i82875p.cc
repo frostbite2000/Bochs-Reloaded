@@ -91,7 +91,7 @@ void bx_i82875p_c::init(void)
   unsigned i;
   
   // Register the host bridge (device 0:0.0)
-  BX_PCI_THIS init_pci_conf(0x8086, 0x2578, 0x02, 0x060000, 0x00);
+  init_pci_conf(0x8086, 0x2578, 0x02, 0x060000, 0x00);
 
   // Initialize the RAM mapping
   ram_size = SIM->get_param_num(BXPN_MEM_SIZE)->get();
@@ -123,9 +123,9 @@ void bx_i82875p_c::init(void)
   }
   
   for (i = 0; i < 8; i++)
-    BX_PCI_THIS pci_conf[0x60 + i] = BX_I82875P_THIS DRBA[i];
+    pci_conf[0x60 + i] = BX_I82875P_THIS DRBA[i];
   
-  BX_I82875P_THIS dram_detect = 0;
+  BX_I82875P_THIS dram_detect = false;
 
   BX_INFO(("i82875P Host bridge initialized"));
 }
@@ -134,25 +134,25 @@ void bx_i82875p_c::reset(unsigned type)
 {
   unsigned i;
 
-  BX_PCI_THIS pci_conf[0x04] = 0x06; // command register - enable I/O, MEM, master
-  BX_PCI_THIS pci_conf[0x05] = 0x00;
-  BX_PCI_THIS pci_conf[0x06] = 0x80; // status
-  BX_PCI_THIS pci_conf[0x07] = 0x02;
-  BX_PCI_THIS pci_conf[0x0d] = 0x00; // master latency timer
-  BX_PCI_THIS pci_conf[0x0f] = 0x00;
-  BX_PCI_THIS pci_conf[0x50] = 0x00;
-  BX_PCI_THIS pci_conf[0x52] = 0x00;
-  BX_PCI_THIS pci_conf[0x53] = 0x80;
-  BX_PCI_THIS pci_conf[0x54] = 0x00;
-  BX_PCI_THIS pci_conf[0x55] = 0x00;
-  BX_PCI_THIS pci_conf[0x56] = 0x00;
-  BX_PCI_THIS pci_conf[0x57] = 0x01;
-  BX_PCI_THIS pci_conf[0x51] = 0x01;
-  BX_PCI_THIS pci_conf[0x58] = 0x10;
+  pci_conf[0x04] = 0x06; // command register - enable I/O, MEM, master
+  pci_conf[0x05] = 0x00;
+  pci_conf[0x06] = 0x80; // status
+  pci_conf[0x07] = 0x02;
+  pci_conf[0x0d] = 0x00; // master latency timer
+  pci_conf[0x0f] = 0x00;
+  pci_conf[0x50] = 0x00;
+  pci_conf[0x52] = 0x00;
+  pci_conf[0x53] = 0x80;
+  pci_conf[0x54] = 0x00;
+  pci_conf[0x55] = 0x00;
+  pci_conf[0x56] = 0x00;
+  pci_conf[0x57] = 0x01;
+  pci_conf[0x51] = 0x01;
+  pci_conf[0x58] = 0x10;
 
   // Reset all PAM registers (disable all device memory)
   for (i=0x59; i<=0x5f; i++) {
-    BX_PCI_THIS pci_conf[i] = 0x00;
+    pci_conf[i] = 0x00;
     BX_I82875P_THIS pam[i-0x59] = 0x00;
   }
   
@@ -183,7 +183,8 @@ void bx_i82875p_c::register_state(void)
   
   register_pci_state(list);
   
-  BXRS_PARAM_BOOL(list, dram_detect, BX_I82875P_THIS dram_detect);
+  // Using a bool* rather than Bit8u* for the dram_detect parameter to match the bx_shadow_bool_c constructor
+  new bx_shadow_bool_c(list, "dram_detect", &BX_I82875P_THIS dram_detect);
   
   bx_list_c *pam = new bx_list_c(list, "PAM");
   for (i=0; i<8; i++) {
@@ -225,25 +226,25 @@ void bx_i82875p_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_le
   BX_DEBUG_PCI_WRITE(address, value, io_len);
   for (unsigned i=0; i<io_len; i++) {
     value8 = (value >> (i*8)) & 0xFF;
-    oldval = BX_PCI_THIS pci_conf[address+i];
+    oldval = pci_conf[address+i];
     switch (address+i) {
       case 0x04:
-        BX_PCI_THIS pci_conf[address+i] = (value8 & 0x40) | 0x06;
+        pci_conf[address+i] = (value8 & 0x40) | 0x06;
         break;
       case 0x05:
-        BX_PCI_THIS pci_conf[address+i] = (value8 & 0x01);
+        pci_conf[address+i] = (value8 & 0x01);
         break;
       case 0x07:
-        BX_PCI_THIS pci_conf[address+i] &= ~(value8 & 0xf9);
+        pci_conf[address+i] &= ~(value8 & 0xf9);
         break;
       case 0x0d:
-        BX_PCI_THIS pci_conf[address+i] = (value8 & 0xf8);
+        pci_conf[address+i] = (value8 & 0xf8);
         break;
       case 0x50:
-        BX_PCI_THIS pci_conf[address+i] = (value8 & 0xec);
+        pci_conf[address+i] = (value8 & 0xec);
         break;
       case 0x51:
-        BX_PCI_THIS pci_conf[address+i] = (value8 & 0x8f) | 0x20;
+        pci_conf[address+i] = (value8 & 0x8f) | 0x20;
         break;
       case 0x59:
       case 0x5A:
@@ -253,7 +254,7 @@ void bx_i82875p_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_le
       case 0x5E:
       case 0x5F:
         if (value8 != oldval) {
-          BX_PCI_THIS pci_conf[address+i] = value8;
+          pci_conf[address+i] = value8;
           BX_I82875P_THIS pam[address+i-0x59] = value8;
           BX_I82875P_THIS map_pam_memory(value8);
           BX_INFO(("i82875P: PAM register %x (TLB Flush)", address+i));
@@ -265,11 +266,11 @@ void bx_i82875p_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_le
         break;
       case 0x73:
         // Extended SMRAM control register (not fully implemented)
-        BX_PCI_THIS pci_conf[address+i] = (value8 | 0x38);
+        pci_conf[address+i] = (value8 | 0x38);
         break;
       case 0x90: // PAM0 mapped to 0x59
         if (value8 != oldval) {
-          BX_PCI_THIS pci_conf[0x59] = value8;
+          pci_conf[0x59] = value8;
           BX_I82875P_THIS pam[0] = value8;
           BX_I82875P_THIS map_pam_memory(value8);
           BX_INFO(("i82875P: PAM register 0x59 (TLB Flush)"));
@@ -277,7 +278,7 @@ void bx_i82875p_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_le
         }
         break;
       default:
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         BX_DEBUG(("i82875P PCI write register 0x%02x value 0x%02x", address+i, value8));
     }
   }
@@ -303,7 +304,7 @@ void bx_i82875p_c::smram_control(Bit8u value)
 
   value = (value & 0x78) | 0x2; // ignore reserved bits (set to 0)
 
-  if (BX_PCI_THIS pci_conf[0x72] & 0x10)
+  if (pci_conf[0x72] & 0x10)
   {
     value &= 0xbf; // set DOPEN=0, DLCK=1
     value |= 0x10;
@@ -319,7 +320,7 @@ void bx_i82875p_c::smram_control(Bit8u value)
   }
 
   BX_INFO(("SMRAM control register: 0x%02x", value));
-  BX_PCI_THIS pci_conf[0x72] = value;
+  pci_conf[0x72] = value;
 }
 
 void bx_i82875p_c::map_pam_memory(Bit8u value)
@@ -406,29 +407,29 @@ bx_i82875p_agp_c::~bx_i82875p_agp_c()
 void bx_i82875p_agp_c::init(void)
 {
   // Register the PCI-AGP bridge (device 0:1.0)
-  BX_PCI_THIS init_pci_conf(0x8086, 0x2579, 0x02, 0x060400, 0x01);
-  BX_PCI_THIS pci_conf[0x06] = 0x20;
-  BX_PCI_THIS pci_conf[0x07] = 0x02;
-  BX_PCI_THIS pci_conf[0x1e] = 0xa0;
+  init_pci_conf(0x8086, 0x2579, 0x02, 0x060400, 0x01);
+  pci_conf[0x06] = 0x20;
+  pci_conf[0x07] = 0x02;
+  pci_conf[0x1e] = 0xa0;
 
   BX_INFO(("i82875P AGP bridge initialized"));
 }
 
 void bx_i82875p_agp_c::reset(unsigned type)
 {
-  BX_PCI_THIS pci_conf[0x04] = 0x00;
-  BX_PCI_THIS pci_conf[0x05] = 0x00;
-  BX_PCI_THIS pci_conf[0x1c] = 0xf0;
-  BX_PCI_THIS pci_conf[0x1f] = 0x02;
-  BX_PCI_THIS pci_conf[0x20] = 0xf0;
-  BX_PCI_THIS pci_conf[0x21] = 0xff;
-  BX_PCI_THIS pci_conf[0x22] = 0x00;
-  BX_PCI_THIS pci_conf[0x23] = 0x00;
-  BX_PCI_THIS pci_conf[0x24] = 0xf0;
-  BX_PCI_THIS pci_conf[0x25] = 0xff;
-  BX_PCI_THIS pci_conf[0x26] = 0x00;
-  BX_PCI_THIS pci_conf[0x27] = 0x00;
-  BX_PCI_THIS pci_conf[0x3e] = 0x80;
+  pci_conf[0x04] = 0x00;
+  pci_conf[0x05] = 0x00;
+  pci_conf[0x1c] = 0xf0;
+  pci_conf[0x1f] = 0x02;
+  pci_conf[0x20] = 0xf0;
+  pci_conf[0x21] = 0xff;
+  pci_conf[0x22] = 0x00;
+  pci_conf[0x23] = 0x00;
+  pci_conf[0x24] = 0xf0;
+  pci_conf[0x25] = 0xff;
+  pci_conf[0x26] = 0x00;
+  pci_conf[0x27] = 0x00;
+  pci_conf[0x3e] = 0x80;
 }
 
 void bx_i82875p_agp_c::register_state(void)
@@ -445,7 +446,7 @@ void bx_i82875p_agp_c::pci_write_handler(Bit8u address, Bit32u value, unsigned i
 
   for (unsigned i=0; i<io_len; i++) {
     value8 = (value >> (i*8)) & 0xff;
-    oldval = BX_PCI_THIS pci_conf[address+i];
+    oldval = pci_conf[address+i];
     switch (address+i) {
       case 0x04: // PCICMD1
         value8 &= 0x3f;
@@ -485,7 +486,7 @@ void bx_i82875p_agp_c::pci_write_handler(Bit8u address, Bit32u value, unsigned i
       default:
         value8 = oldval;
     }
-    BX_PCI_THIS pci_conf[address+i] = value8;
+    pci_conf[address+i] = value8;
   }
 }
 

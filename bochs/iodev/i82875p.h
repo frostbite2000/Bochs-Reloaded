@@ -63,7 +63,7 @@ private:
   Bit32u attbase;       // Aperture Translation Table base
   
   unsigned ram_size;
-  Bit8u dram_detect;
+  bool dram_detect;   // Changed from Bit8u to bool to match bx_shadow_bool_c constructor
   Bit8u DRBA[8];        // DRAM Row Boundary Address
 
   BX_I82875P_SMF void smram_control(Bit8u value);

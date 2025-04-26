@@ -87,7 +87,7 @@ bx_i6300esb_lpc_c::~bx_i6300esb_lpc_c()
 void bx_i6300esb_lpc_c::init(void)
 {
   // Register 82801 LPC bridge (i6300ESB southbridge is based on 82801) (device 1:31.0)
-  BX_PCI_THIS init_pci_conf(0x8086, 0x25a1, 0x01, 0x060100, 0x80);
+  init_pci_conf(0x8086, 0x25a1, 0x01, 0x060100, 0x80);
   
   // Register I/O handlers for port access
   DEV_register_iowrite_handler(this, write_handler, 0x00B2, "i6300ESB LPC bridge", 1);
@@ -107,21 +107,21 @@ void bx_i6300esb_lpc_c::init(void)
 
 void bx_i6300esb_lpc_c::reset(unsigned type)
 {
-  BX_PCI_THIS pci_conf[0x04] = 0x07; // Command: I/O, MEM, BUS Master
-  BX_PCI_THIS pci_conf[0x05] = 0x00;
-  BX_PCI_THIS pci_conf[0x06] = 0x00;
-  BX_PCI_THIS pci_conf[0x07] = 0x02; // Status
-  BX_PCI_THIS pci_conf[0x4c] = 0x4d;
-  BX_PCI_THIS pci_conf[0x4e] = 0x03;
-  BX_PCI_THIS pci_conf[0x4f] = 0x00;
-  BX_PCI_THIS pci_conf[0x60] = 0x80; // PIRQ routing registers
-  BX_PCI_THIS pci_conf[0x61] = 0x80;
-  BX_PCI_THIS pci_conf[0x62] = 0x80;
-  BX_PCI_THIS pci_conf[0x63] = 0x80;
-  BX_PCI_THIS pci_conf[0x69] = 0x02;
-  BX_PCI_THIS pci_conf[0x72] = 0x02; // SMRAM control register
-  BX_PCI_THIS pci_conf[0x80] = 0x00;
-  BX_PCI_THIS pci_conf[0x82] = 0x00;
+  pci_conf[0x04] = 0x07; // Command: I/O, MEM, BUS Master
+  pci_conf[0x05] = 0x00;
+  pci_conf[0x06] = 0x00;
+  pci_conf[0x07] = 0x02; // Status
+  pci_conf[0x4c] = 0x4d;
+  pci_conf[0x4e] = 0x03;
+  pci_conf[0x4f] = 0x00;
+  pci_conf[0x60] = 0x80; // PIRQ routing registers
+  pci_conf[0x61] = 0x80;
+  pci_conf[0x62] = 0x80;
+  pci_conf[0x63] = 0x80;
+  pci_conf[0x69] = 0x02;
+  pci_conf[0x72] = 0x02; // SMRAM control register
+  pci_conf[0x80] = 0x00;
+  pci_conf[0x82] = 0x00;
 
   BX_I6300ESB_THIS rtc_conf = 0x00;
   BX_I6300ESB_THIS pmbase = 0;
@@ -330,10 +330,10 @@ void bx_i6300esb_lpc_c::pci_write_handler(Bit8u address, Bit32u value, unsigned 
   BX_DEBUG_PCI_WRITE(address, value, io_len);
   for (unsigned i=0; i<io_len; i++) {
     value8 = (value >> (i*8)) & 0xFF;
-    oldval = BX_PCI_THIS pci_conf[address+i];
+    oldval = pci_conf[address+i];
     switch (address+i) {
       case 0x04:
-        BX_PCI_THIS pci_conf[address+i] = value8 & 0x05;
+        pci_conf[address+i] = value8 & 0x05;
         break;
         
       // IRQ routing registers
@@ -341,7 +341,7 @@ void bx_i6300esb_lpc_c::pci_write_handler(Bit8u address, Bit32u value, unsigned 
       case 0x62: case 0x63:
         value8 &= 0x8f;
         if (value8 != oldval) {
-          BX_PCI_THIS pci_conf[address+i] = value8;
+          pci_conf[address+i] = value8;
           unsigned irq = address+i - 0x60;
           BX_I6300ESB_THIS pirq_rout[irq] = value8;
           BX_INFO(("PCI IRQ routing: PIRQ%c# set to 0x%02x", irq+'A', value8));
@@ -350,87 +350,87 @@ void bx_i6300esb_lpc_c::pci_write_handler(Bit8u address, Bit32u value, unsigned 
         
       case 0x40: // PMBASE - ACPI base address
         BX_I6300ESB_THIS pmbase = (BX_I6300ESB_THIS pmbase & 0xff00) | (value8 & 0x80);
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         remap_needed = true;
         break;
         
       case 0x41: // PMBASE high byte
         BX_I6300ESB_THIS pmbase = (BX_I6300ESB_THIS pmbase & 0x80) | ((value8 & 0xff) << 8);
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         remap_needed = true;
         break;
         
       case 0x44: // ACPI control
         BX_I6300ESB_THIS acpi_cntl = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         remap_needed = true;
         break;
         
       case 0x58: // GPIO I/O base address
         BX_I6300ESB_THIS gpio_base = (BX_I6300ESB_THIS gpio_base & 0xff00) | (value8 & 0xc0);
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         remap_needed = true;
         break;
         
       case 0x59: // GPIO I/O base address high byte
         BX_I6300ESB_THIS gpio_base = (BX_I6300ESB_THIS gpio_base & 0xc0) | ((value8 & 0xff) << 8);
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         remap_needed = true;
         break;
         
       case 0x5C: // GPIO control
         BX_I6300ESB_THIS gpio_cntl = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         remap_needed = true;
         break;
         
       case 0x72: // SMRAM control
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         // Handle SMRAM control changes - this is just a stub
         BX_INFO(("SMRAM control register modified: 0x%02x", value8));
         break;
         
       case 0xd5: // BACK_CNTL (undocumented)
         BX_I6300ESB_THIS back_cntl = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         break;
         
       case 0xd8: // RTC configuration
         BX_I6300ESB_THIS rtc_conf = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         break;
         
       case 0xe0: // LPC_IF_COM_RANGE
         BX_I6300ESB_THIS lpc_if_com_range = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         break;
         
       case 0xe1: // LPC_IF_FDD_LPT_RANGE
         BX_I6300ESB_THIS lpc_if_fdd_lpt_range = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         break;
         
       case 0xe2: // LPC_IF_SOUND_RANGE
         BX_I6300ESB_THIS lpc_if_sound_range = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         break;
         
       case 0xe3: // FWH_DEC_EN1
         BX_I6300ESB_THIS fwh_dec_en1 = value8 | 0x80;
-        BX_PCI_THIS pci_conf[address+i] = BX_I6300ESB_THIS fwh_dec_en1;
+        pci_conf[address+i] = BX_I6300ESB_THIS fwh_dec_en1;
         map_bios_regions();
         break;
         
       case 0xe4: case 0xe5: // GEN1_DEC
         BX_I6300ESB_THIS gen1_dec &= ~(0xff << (8 * (address+i - 0xe4)));
         BX_I6300ESB_THIS gen1_dec |= (value8 << (8 * (address+i - 0xe4)));
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         break;
         
       case 0xe6: case 0xe7: // LPC_EN
         BX_I6300ESB_THIS lpc_en &= ~(0xff << (8 * (address+i - 0xe6)));
         BX_I6300ESB_THIS lpc_en |= (value8 << (8 * (address+i - 0xe6)));
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         break;
         
       case 0xe8: case 0xe9: case 0xea: case 0xeb: // FWH_SEL1
@@ -438,18 +438,18 @@ void bx_i6300esb_lpc_c::pci_write_handler(Bit8u address, Bit32u value, unsigned 
           int shift = 8 * (address+i - 0xe8);
           BX_I6300ESB_THIS fwh_sel1 &= ~(0xff << shift);
           BX_I6300ESB_THIS fwh_sel1 |= (value8 << shift);
-          BX_PCI_THIS pci_conf[address+i] = value8;
+          pci_conf[address+i] = value8;
         }
         break;
         
       case 0xf0: // FWH_DEC_EN2
         BX_I6300ESB_THIS fwh_dec_en2 = value8;
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         map_bios_regions();
         break;
         
       default:
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         BX_DEBUG(("i6300ESB LPC write register 0x%02x value 0x%02x", address+i, value8));
     }
   }
@@ -487,23 +487,23 @@ bx_i6300esb_wdog_c::~bx_i6300esb_wdog_c()
 void bx_i6300esb_wdog_c::init(void)
 {
   // Register i6300ESB watchdog timer (device 1:5.0)
-  BX_PCI_THIS init_pci_conf(0x8086, 0x25ab, 0x02, 0x088000, 0x00);
+  init_pci_conf(0x8086, 0x25ab, 0x02, 0x088000, 0x00);
   
   // Reserve memory space for watchdog registers
-  BX_PCI_THIS pci_conf[0x10] = 0x10; // Base address register
-  BX_PCI_THIS pci_conf[0x14] = 0x10; // Base address register
+  pci_conf[0x10] = 0x10; // Base address register
+  pci_conf[0x14] = 0x10; // Base address register
   
   BX_INFO(("i6300ESB Watchdog Timer initialized"));
 }
 
 void bx_i6300esb_wdog_c::reset(unsigned type)
 {
-  BX_PCI_THIS pci_conf[0x04] = 0x00; // Command register
-  BX_PCI_THIS pci_conf[0x05] = 0x00;
-  BX_PCI_THIS pci_conf[0x06] = 0x80; // Status
-  BX_PCI_THIS pci_conf[0x07] = 0x02;
-  BX_PCI_THIS pci_conf[0x08] = 0x02; // Revision ID
-  BX_PCI_THIS pci_conf[0x0D] = 0x00; // Master latency timer
+  pci_conf[0x04] = 0x00; // Command register
+  pci_conf[0x05] = 0x00;
+  pci_conf[0x06] = 0x80; // Status
+  pci_conf[0x07] = 0x02;
+  pci_conf[0x08] = 0x02; // Revision ID
+  pci_conf[0x0D] = 0x00; // Master latency timer
   
   wdt_conf_reg = 0;
   wdt_count_reg = 0;
@@ -535,10 +535,10 @@ void bx_i6300esb_wdog_c::pci_write_handler(Bit8u address, Bit32u value, unsigned
     value8 = (value >> (i*8)) & 0xFF;
     switch (address+i) {
       case 0x04:  // Command register
-        BX_PCI_THIS pci_conf[address+i] = value8 & 0x02;
+        pci_conf[address+i] = value8 & 0x02;
         break;
       default:
-        BX_PCI_THIS pci_conf[address+i] = value8;
+        pci_conf[address+i] = value8;
         BX_DEBUG(("Watchdog register write to offset 0x%02x: 0x%02x", address+i, value8));
     }
   }
