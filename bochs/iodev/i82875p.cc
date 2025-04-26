@@ -2,28 +2,23 @@
 // $Id$
 /////////////////////////////////////////////////////////////////////////
 //
-// Intel i82875P (northbridge) emulation
-// Intel i82875P (northbridge) AGP bridge
+//  Copyright (C) 2023-2025  The Bochs Project
 //
-// Copyright (c) 2023-2025 The Bochs Project
+//  This library is free software; you can redistribute it and/or
+//  modify it under the terms of the GNU Lesser General Public
+//  License as published by the Free Software Foundation; either
+//  version 2 of the License, or (at your option) any later version.
 //
-// This library is free software; you can redistribute it and/or
-// modify it under the terms of the GNU Lesser General Public
-// License as published by the Free Software Foundation; either
-// version 2 of the License, or (at your option) any later version.
+//  This library is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+//  Lesser General Public License for more details.
 //
-// This library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-// Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public
-// License along with this library; if not, write to the Free Software
-// Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+//  You should have received a copy of the GNU Lesser General Public
+//  License along with this library; if not, write to the Free Software
+//  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
-// Define BX_PLUGGABLE in files that can be compiled into plugins.  For
-// platforms that require a special tag on exported symbols, BX_PLUGGABLE
-// is used to know when we are exporting symbols and when we are importing.
+// Intel i82875P (northbridge) emulation
 
 #define BX_PLUGGABLE
 
@@ -46,16 +41,35 @@ PLUGIN_ENTRY_FOR_MODULE(i82875p)
   if (mode == PLUGIN_INIT) {
     thei82875p = new bx_i82875p_c();
     BX_REGISTER_DEVICE_DEVMODEL(plugin, type, thei82875p, BX_PLUGIN_I82875P);
-
-    thei82875p_agp = new bx_i82875p_agp_c();
-    BX_REGISTER_DEVICE_DEVMODEL(plugin, type, thei82875p_agp, BX_PLUGIN_I82875P_AGP);
+    return 0;
   } else if (mode == PLUGIN_FINI) {
     delete thei82875p;
-    delete thei82875p_agp;
+    thei82875p = NULL;
+    return 0;
   } else if (mode == PLUGIN_PROBE) {
-    return (int)PLUGTYPE_CORE;
+    return PLUGTYPE_STANDARD;
+  } else {
+    return 0;
   }
-  return 0; // Success
+}
+
+// AGP bridge device plugin entry point
+
+PLUGIN_ENTRY_FOR_MODULE(i82875p_agp)
+{
+  if (mode == PLUGIN_INIT) {
+    thei82875p_agp = new bx_i82875p_agp_c();
+    BX_REGISTER_DEVICE_DEVMODEL(plugin, type, thei82875p_agp, BX_PLUGIN_I82875P_AGP);
+    return 0;
+  } else if (mode == PLUGIN_FINI) {
+    delete thei82875p_agp;
+    thei82875p_agp = NULL;
+    return 0;
+  } else if (mode == PLUGIN_PROBE) {
+    return PLUGTYPE_STANDARD;
+  } else {
+    return 0;
+  }
 }
 
 //
@@ -75,6 +89,7 @@ bx_i82875p_c::~bx_i82875p_c()
 void bx_i82875p_c::init(void)
 {
   unsigned i;
+  
   // Register the host bridge (device 0:0.0)
   BX_PCI_THIS init_pci_conf(0x8086, 0x2578, 0x02, 0x060000, 0x00);
 
@@ -166,7 +181,7 @@ void bx_i82875p_c::register_state(void)
 
   bx_list_c *list = new bx_list_c(SIM->get_bochs_root(), "i82875p", "i82875P Host Bridge State");
   
-  bx_pci_device_c::register_state_pci(list);
+  register_pci_state(list);
   
   BXRS_PARAM_BOOL(list, dram_detect, BX_I82875P_THIS dram_detect);
   
@@ -244,16 +259,6 @@ void bx_i82875p_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_le
           BX_INFO(("i82875P: PAM register %x (TLB Flush)", address+i));
           bx_pc_system.MemoryMappingChanged();
         }
-        break;
-      case 0x60:
-      case 0x61:
-      case 0x62:
-      case 0x63:
-      case 0x64:
-      case 0x65:
-      case 0x66:
-      case 0x67:
-        BX_PCI_THIS pci_conf[address+i] = value8;
         break;
       case 0x72:
         BX_I82875P_THIS smram_control(value8); // SMRAM control register
@@ -429,7 +434,7 @@ void bx_i82875p_agp_c::reset(unsigned type)
 void bx_i82875p_agp_c::register_state(void)
 {
   bx_list_c *list = new bx_list_c(SIM->get_bochs_root(), "i82875p_agp", "i82875P AGP Bridge State");
-  bx_pci_device_c::register_state_pci(list);
+  register_pci_state(list);
 }
 
 void bx_i82875p_agp_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_len)

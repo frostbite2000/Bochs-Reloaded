@@ -2,24 +2,21 @@
 // $Id$
 /////////////////////////////////////////////////////////////////////////
 //
-// Intel i82875P (northbridge) emulation
-// Intel i82875P (northbridge) AGP bridge
+//  Copyright (C) 2023-2025  The Bochs Project
 //
-// Copyright (c) 2023-2025 The Bochs Project
+//  This library is free software; you can redistribute it and/or
+//  modify it under the terms of the GNU Lesser General Public
+//  License as published by the Free Software Foundation; either
+//  version 2 of the License, or (at your option) any later version.
 //
-// This library is free software; you can redistribute it and/or
-// modify it under the terms of the GNU Lesser General Public
-// License as published by the Free Software Foundation; either
-// version 2 of the License, or (at your option) any later version.
+//  This library is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+//  Lesser General Public License for more details.
 //
-// This library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-// Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public
-// License along with this library; if not, write to the Free Software
-// Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+//  You should have received a copy of the GNU Lesser General Public
+//  License along with this library; if not, write to the Free Software
+//  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
 #ifndef BX_I82875P_H
 #define BX_I82875P_H
@@ -27,9 +24,11 @@
 #if BX_USE_I82875P_SMF
 #  define BX_I82875P_SMF static
 #  define BX_I82875P_THIS thei82875p->
+#  define BX_I82875P_THIS_PTR thei82875p
 #else
 #  define BX_I82875P_SMF
 #  define BX_I82875P_THIS this->
+#  define BX_I82875P_THIS_PTR this
 #endif
 
 // Host bridge (Device 0:0.0)
@@ -83,5 +82,8 @@ public:
   
   virtual void pci_write_handler(Bit8u address, Bit32u value, unsigned io_len);
 };
+
+extern bx_i82875p_c *thei82875p;
+extern bx_i82875p_agp_c *thei82875p_agp;
 
 #endif

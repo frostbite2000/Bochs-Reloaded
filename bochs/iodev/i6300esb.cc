@@ -2,29 +2,23 @@
 // $Id$
 /////////////////////////////////////////////////////////////////////////
 //
-// Intel i6300ESB southbridge emulation
-// i6300ESB LPC/ISA bridge
-// i6300ESB watchdog timer
+//  Copyright (C) 2023-2025  The Bochs Project
 //
-// Copyright (c) 2023-2025 The Bochs Project
+//  This library is free software; you can redistribute it and/or
+//  modify it under the terms of the GNU Lesser General Public
+//  License as published by the Free Software Foundation; either
+//  version 2 of the License, or (at your option) any later version.
 //
-// This library is free software; you can redistribute it and/or
-// modify it under the terms of the GNU Lesser General Public
-// License as published by the Free Software Foundation; either
-// version 2 of the License, or (at your option) any later version.
+//  This library is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+//  Lesser General Public License for more details.
 //
-// This library is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-// Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public
-// License along with this library; if not, write to the Free Software
-// Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+//  You should have received a copy of the GNU Lesser General Public
+//  License along with this library; if not, write to the Free Software
+//  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
-// Define BX_PLUGGABLE in files that can be compiled into plugins.  For
-// platforms that require a special tag on exported symbols, BX_PLUGGABLE
-// is used to know when we are exporting symbols and when we are importing.
+// Intel i6300ESB southbridge emulation
 
 #define BX_PLUGGABLE
 
@@ -47,12 +41,16 @@ PLUGIN_ENTRY_FOR_MODULE(i6300esb_lpc)
   if (mode == PLUGIN_INIT) {
     thei6300esb_lpc = new bx_i6300esb_lpc_c();
     BX_REGISTER_DEVICE_DEVMODEL(plugin, type, thei6300esb_lpc, BX_PLUGIN_I6300ESB_LPC);
+    return 0;
   } else if (mode == PLUGIN_FINI) {
     delete thei6300esb_lpc;
+    thei6300esb_lpc = NULL;
+    return 0;
   } else if (mode == PLUGIN_PROBE) {
-    return (int)PLUGTYPE_STANDARD;
+    return PLUGTYPE_STANDARD;
+  } else {
+    return 0;
   }
-  return 0; // Success
 }
 
 PLUGIN_ENTRY_FOR_MODULE(i6300esb_wdog)
@@ -60,12 +58,16 @@ PLUGIN_ENTRY_FOR_MODULE(i6300esb_wdog)
   if (mode == PLUGIN_INIT) {
     thei6300esb_wdog = new bx_i6300esb_wdog_c();
     BX_REGISTER_DEVICE_DEVMODEL(plugin, type, thei6300esb_wdog, BX_PLUGIN_I6300ESB_WDOG);
+    return 0;
   } else if (mode == PLUGIN_FINI) {
     delete thei6300esb_wdog;
+    thei6300esb_wdog = NULL;
+    return 0;
   } else if (mode == PLUGIN_PROBE) {
-    return (int)PLUGTYPE_OPTIONAL;
+    return PLUGTYPE_OPTIONAL;
+  } else {
+    return 0;
   }
-  return 0; // Success
 }
 
 //
@@ -135,13 +137,24 @@ void bx_i6300esb_lpc_c::reset(unsigned type)
   BX_I6300ESB_THIS gen1_dec = 0x0000;
   BX_I6300ESB_THIS lpc_en = 0x0000;
   BX_I6300ESB_THIS fwh_sel1 = 0x00112233;
+  
+  // Reset PCI reset register
+  BX_I6300ESB_THIS pci_reset = 0;
+  
+  // Reset ELCR registers
+  BX_I6300ESB_THIS elcr1 = 0;
+  BX_I6300ESB_THIS elcr2 = 0;
+  
+  // Reset APM registers
+  BX_I6300ESB_THIS apm_cnt = 0;
+  BX_I6300ESB_THIS apm_sts = 0;
 }
 
 void bx_i6300esb_lpc_c::register_state(void)
 {
   bx_list_c *list = new bx_list_c(SIM->get_bochs_root(), "i6300esb_lpc", "i6300ESB LPC Bridge State");
   
-  bx_pci_device_c::register_state_pci(list);
+  register_pci_state(list);
   
   BXRS_HEX_PARAM_FIELD(list, pmbase, BX_I6300ESB_THIS pmbase);
   BXRS_HEX_PARAM_FIELD(list, acpi_cntl, BX_I6300ESB_THIS acpi_cntl);
@@ -157,6 +170,11 @@ void bx_i6300esb_lpc_c::register_state(void)
   BXRS_HEX_PARAM_FIELD(list, gen1_dec, BX_I6300ESB_THIS gen1_dec);
   BXRS_HEX_PARAM_FIELD(list, lpc_en, BX_I6300ESB_THIS lpc_en);
   BXRS_HEX_PARAM_FIELD(list, fwh_sel1, BX_I6300ESB_THIS fwh_sel1);
+  BXRS_HEX_PARAM_FIELD(list, elcr1, BX_I6300ESB_THIS elcr1);
+  BXRS_HEX_PARAM_FIELD(list, elcr2, BX_I6300ESB_THIS elcr2);
+  BXRS_HEX_PARAM_FIELD(list, pci_reset, BX_I6300ESB_THIS pci_reset);
+  BXRS_HEX_PARAM_FIELD(list, apm_cnt, BX_I6300ESB_THIS apm_cnt);
+  BXRS_HEX_PARAM_FIELD(list, apm_sts, BX_I6300ESB_THIS apm_sts);
   
   // PIRQ routing registration
   bx_list_c *pirq = new bx_list_c(list, "pirq_routing");
@@ -262,7 +280,7 @@ void bx_i6300esb_lpc_c::map_bios(Bit32u addr, bool readonly)
   BX_DEBUG(("mapping BIOS at 0x%08x%s", addr, readonly ? " (read-only)" : ""));
   
   // Get the BIOS ROM mapped by the base firmware
-  char *bios = (char*)DEV_get_param_string(BXPN_BIOS_ROM_PATH)->getptr();
+  char *bios = (char*)SIM->get_param_string(BXPN_BIOS_ROM_PATH)->getptr();
   
   // Stub implementation - in a real implementation you'd actually map
   // the BIOS to the appropriate address in memory with the right permissions
@@ -455,6 +473,10 @@ void bx_i6300esb_lpc_c::pci_write_handler(Bit8u address, Bit32u value, unsigned 
 bx_i6300esb_wdog_c::bx_i6300esb_wdog_c()
 {
   put("i6300esb_wdog", "I6300ESB_WDOG");
+  wdt_conf_reg = 0;
+  wdt_count_reg = 0;
+  wdt_reload_reg = 0;
+  wdt_status = 0;
 }
 
 bx_i6300esb_wdog_c::~bx_i6300esb_wdog_c()
@@ -482,13 +504,23 @@ void bx_i6300esb_wdog_c::reset(unsigned type)
   BX_PCI_THIS pci_conf[0x07] = 0x02;
   BX_PCI_THIS pci_conf[0x08] = 0x02; // Revision ID
   BX_PCI_THIS pci_conf[0x0D] = 0x00; // Master latency timer
+  
+  wdt_conf_reg = 0;
+  wdt_count_reg = 0;
+  wdt_reload_reg = 0;
+  wdt_status = 0;
 }
 
 void bx_i6300esb_wdog_c::register_state(void)
 {
   bx_list_c *list = new bx_list_c(SIM->get_bochs_root(), "i6300esb_wdog", "i6300ESB Watchdog Timer State");
   
-  bx_pci_device_c::register_state_pci(list);
+  register_pci_state(list);
+  
+  BXRS_HEX_PARAM_FIELD(list, wdt_conf_reg, wdt_conf_reg);
+  BXRS_HEX_PARAM_FIELD(list, wdt_count_reg, wdt_count_reg);
+  BXRS_HEX_PARAM_FIELD(list, wdt_reload_reg, wdt_reload_reg);
+  BXRS_HEX_PARAM_FIELD(list, wdt_status, wdt_status);
 }
 
 void bx_i6300esb_wdog_c::pci_write_handler(Bit8u address, Bit32u value, unsigned io_len)

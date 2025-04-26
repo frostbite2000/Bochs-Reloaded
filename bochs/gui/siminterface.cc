@@ -831,7 +831,7 @@ bool bx_real_sim_c::is_pci_device(const char *name)
   const char *device;
 
   if (SIM->get_param_bool(BXPN_PCI_ENABLED)->get()) {
-    if (SIM->get_param_enum(BXPN_PCI_CHIPSET)->get() == BX_PCI_CHIPSET_I440BX) {
+    if (SIM->get_param_enum(BXPN_PCI_CHIPSET)->get() == BX_PCI_CHIPSET_I440BX && BX_PCI_CHIPSET_I82875P) {
       max_pci_slots = 4;
     }
     for (i = 0; i < max_pci_slots; i++) {

@@ -196,7 +196,7 @@ void bx_devices_c::init(BX_MEM_C *newmem)
     } else if (chipset == BX_PCI_CHIPSET_I440BX) {
       pci.advopts = 0;
     } else if (chipset == BX_PCI_CHIPSET_I82875P) {
-      // The i82875P supports advanced options similar to the i440BX
+      // The i82875P supports similar options to i440BX with some additions
       pci.advopts = 0;
     }
     options = SIM->get_param_string(BXPN_PCI_ADV_OPTS)->getptr();
@@ -225,8 +225,8 @@ void bx_devices_c::init(BX_MEM_C *newmem)
     PLUG_load_plugin(pci, PLUGTYPE_CORE);
     PLUG_load_plugin(pci2isa, PLUGTYPE_CORE);
 
+    // Load chipset-specific plugins
     if (chipset == BX_PCI_CHIPSET_I82875P) {
-      // Load i82875P host bridge
       PLUG_load_plugin(i82875p, PLUGTYPE_STANDARD);
       
       // Load i6300ESB LPC bridge
@@ -234,7 +234,7 @@ void bx_devices_c::init(BX_MEM_C *newmem)
       
       // Load i6300ESB watchdog if enabled
       if (SIM->get_param_bool(BXPN_I6300ESB_WDOG_ENABLED)->get()) {
-        PLUG_load_plugin(i6300esb_wdog, PLUGTYPE_STANDARD);
+        PLUG_load_plugin(i6300esb_wdog, PLUGTYPE_OPTIONAL);
       }
       
       // Load AGP bridge if not disabled

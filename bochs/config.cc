@@ -933,7 +933,7 @@ void bx_init_options()
       "Select PCI chipset to emulate",
       pci_chipset_names,
       BX_PCI_CHIPSET_I440FX,
-      BX_PCI_CHIPSET_I430FX);
+      BX_PCI_CHIPSET_I82875P);
   deplist->add(pci_chipset);
   // pci slots
   bx_init_pcidev_list();
@@ -959,6 +959,13 @@ void bx_init_options()
   enabled->set_enabled(BX_SUPPORT_PCI);
   pci->set_options(pci->SHOW_PARENT);
   slot->set_options(slot->SHOW_PARENT);
+
+  bx_list_c *i6300esb = new bx_list_c(iodev, "i6300esb", "Intel i6300ESB Chipset Options");
+  
+  bx_param_bool_c *i6300esb_wdog_enabled = new bx_param_bool_c(i6300esb,
+    "watchdog_enabled", "Enable Watchdog Timer",
+    "Controls whether the i6300ESB watchdog timer is enabled",
+    0);
 
   // display subtree
   bx_list_c *display = new bx_list_c(root_param, "display", "Bochs Display & Interface Options");
