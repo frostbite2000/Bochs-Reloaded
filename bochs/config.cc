@@ -960,9 +960,9 @@ void bx_init_options()
   pci->set_options(pci->SHOW_PARENT);
   slot->set_options(slot->SHOW_PARENT);
 
-  bx_list_c *i6300esb = new bx_list_c(iodev, "i6300esb", "Intel i6300ESB Chipset Options");
+  bx_list_c *i6300esb = new bx_list_c(root_param, "i6300esb", "Intel i6300ESB Chipset Options");
   
-  bx_param_bool_c *i6300esb_wdog_enabled = new bx_param_bool_c(i6300esb,
+  new bx_param_bool_c(i6300esb,
     "watchdog_enabled", "Enable Watchdog Timer",
     "Controls whether the i6300ESB watchdog timer is enabled",
     0);
