@@ -53,8 +53,8 @@ public:
   virtual void reset(unsigned type);
   virtual void redraw_area(unsigned x0, unsigned y0,
                            unsigned width, unsigned height);
-  void redraw_area(Bit32s x0, Bit32s y0,
-                   Bit32u width, Bit32u height);
+  void redraw_area(Bit32s x0, Bit32s y0, Bit32u width, Bit32u height);
+  void redraw_area(Bit32u offset, Bit32u width, Bit32u height);
   virtual Bit8u mem_read(bx_phy_address addr);
   virtual void mem_write(bx_phy_address addr, Bit8u value);
   virtual void get_text_snapshot(Bit8u **text_snapshot,
@@ -139,13 +139,19 @@ private:
   BX_GEFORCE_SMF void execute_rop(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_patt(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_gdi(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_chroma(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_imageblit(Bit32u chid, Bit8u cls, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_ifc(Bit32u chid, Bit8u cls, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_surf2d(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_iifc(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_beta(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_sifm(Bit32u chid, Bit32u method, Bit32u param);
 
-  BX_GEFORCE_SMF Bit32u color_565_to_888(Bit16u value);
+  BX_GEFORCE_SMF Bit32u get_pixel(Bit32u obj, Bit32u ofs, Bit32u x, Bit32u cb);
+  BX_GEFORCE_SMF void put_pixel(Bit32u chid, Bit32u ofs, Bit32u x, Bit32u value);
+  BX_GEFORCE_SMF void pixel_operation(Bit32u chid, Bit32u op,
+    Bit32u* dstcolor, const Bit32u* srccolor, Bit32u cb, Bit32u px, Bit32u py);
+
   BX_GEFORCE_SMF void gdi_fillrect(Bit32u chid, bool clipped);
   BX_GEFORCE_SMF void gdi_blit(Bit32u chid, Bit32u type);
   BX_GEFORCE_SMF void ifc(Bit32u chid);
@@ -243,6 +249,7 @@ private:
     Bit32u s2d_ofs_src;
     Bit32u s2d_ofs_dst;
 
+    bool ifc_color_key_enable;
     Bit32u ifc_operation;
     Bit32u ifc_color_fmt;
     Bit32u ifc_color_bytes;
@@ -255,6 +262,7 @@ private:
 
     Bit32u iifc_palette;
     Bit32u iifc_palette_ofs;
+    Bit32u iifc_operation;
     Bit32u iifc_color_fmt;
     Bit32u iifc_color_bytes;
     Bit32u iifc_bpp4;
@@ -278,6 +286,8 @@ private:
     Bit32u sifm_dyx;
     Bit32u sifm_shw;
     Bit32u sifm_dhw;
+    Bit32u sifm_dudx;
+    Bit32u sifm_dvdy;
     Bit32u sifm_sfmt;
     Bit32u sifm_sofs;
 
@@ -294,14 +304,26 @@ private:
 
     Bit8u  rop;
 
+    Bit32u beta;
+
+    Bit32u clip_yx;
+    Bit32u clip_hw;
+
+    Bit32u chroma_color_fmt;
+    Bit32u chroma_color;
+
+    Bit32u patt_shape;
+    Bit32u patt_type;
     Bit32u patt_bg_color;
     Bit32u patt_fg_color;
+    bool patt_data_mono[64];
+    Bit32u patt_data_color[64];
 
     Bit32u gdi_operation;
     Bit32u gdi_color_fmt;
+    Bit32u gdi_clip_yx0;
+    Bit32u gdi_clip_yx1;
     Bit32u gdi_rect_color;
-    Bit32u gdi_rect_clip_yx0;
-    Bit32u gdi_rect_clip_yx1;
     Bit32u gdi_rect_xy;
     Bit32u gdi_rect_yx0;
     Bit32u gdi_rect_yx1;

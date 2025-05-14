@@ -410,10 +410,8 @@ currently work with.
   <row>
     <entry>3D video card</entry>
     <entry>Yes</entry>
-    <entry>Some of the 3dfx Voodoo graphics adapter models are supported now.
-      The code is still experimental, but at least the Voodoo1 and the Voodoo
-      Banshee PCI are known to work. For more information see
-      <xref linkend="voodoo-notes">.</entry>
+    <entry>Four 3dfx Voodoo graphics adapter models are supported now.
+      For more information see <xref linkend="voodoo-notes">.</entry>
   </row>
   <row>
     <entry>Plug&amp;play monitor</entry>
@@ -2435,10 +2433,10 @@ SMP, x86_64 support) and the devices options (e.g. PCI, USB, Cirrus graphics).
     <row>
       <entry>--enable-voodoo</entry>
       <entry>no</entry>
-      <entry>Enable experimental 3dfx Voodoo Graphics emulation. The Voodoo1 is
-      known to work, the Voodoo2 support is not yet complete, but almost usable.
-      The Banshee / Voodoo3 support is under construction, but basically usable.
-      For more information see <xref linkend="voodoo-notes">.
+      <entry>Enable 3dfx Voodoo Graphics emulation. The Voodoo1 and Voodoo2 are
+      PCI add-on cards and the Banshee / Voodoo3 are VGA comaptible and can be
+      assigned to PCI or AGP. For more information see
+      <xref linkend="voodoo-notes">.
       </entry>
     </row>
     <row>
@@ -3599,10 +3597,6 @@ startup if existing and saved on exit if modified. The Bochs BIOS doesn't
 this feature yet.
 </para>
 <note><para>
-  If you use the BIOS-bochs-legacy romimage BIOS option, you cannot use a PCI
-  enabled VGA ROM BIOS.
-</para></note>
-<note><para>
   If you use a SeaBIOS binary in romimage BIOS option, you must use a PCI
   enabled VGA ROM BIOS.
 </para></note>
@@ -3622,8 +3616,7 @@ This tells Bochs what VGA ROM BIOS to load (at 0xC0000).
 are provided in the source and binary distributions.</para>
 <note><para>
   Please check with the <link linkend="bochsopt-vga">vga option</link> to decide
-  what VGA BIOS to use. If you use the BIOS-bochs-legacy romimage BIOS option,
-  you cannot use a PCI enabled VGA ROM BIOS.
+  what VGA BIOS to use.
 </para></note>
 </section>
 
@@ -3707,12 +3700,10 @@ Example:
 <screen>
   voodoo: enabled=1, model=voodoo1
 </screen>
-This defines the Voodoo Graphics emulation (experimental). Currently
-supported models are 'voodoo1', 'voodoo2', 'banshee' and 'voodoo3'.
-The Voodoo2 support is not yet complete, but almost usable. The Banshee /
-Voodoo3 support is under construction, but basically usable. The 2D/3D cards
-require the vga extension option to be set to 'voodoo'. If the i440BX PCI
-chipset is selected, they can be assigned to AGP (slot #5). The GUI screen
+This defines the Voodoo Graphics emulation. Currently supported models are
+'voodoo1', 'voodoo2', 'banshee' and 'voodoo3'. The 2D/3D cards require the
+vga extension option to be set to 'voodoo'. If the i440BX PCI chipset is
+selected, they can be assigned to AGP (slot #5). The GUI screen
 update timing for all models is controlled by the related
 'vga' options. See <xref linkend="voodoo-notes"> for more information.
 </para>
@@ -4238,33 +4229,35 @@ Default is %t%e%d
 </para>
 </section>
 
-<section id="bochsopt-debug-info-error-panic"><title>debug/info/error/panic</title>
+<section id="bochsopt-logevents"><title>debug/info/warn/error/panic</title>
 <para>
 Examples:
 <screen>
   debug: action=ignore, pci=report
   info: action=report
+  warn: action=warn
   error: action=report
   panic: action=ask
 </screen>
 
 During simulation, Bochs encounters certain events that the user might want to
-know about.  These events are divided into four levels of importance: debug,
-info, error, and panic.  Debug messages are usually only useful when writing
+know about.  These events are divided into five levels of importance: debug,
+info, warn, error, and panic.  Debug messages are usually only useful when writing
 Bochs code or when trying to locate a problem.  There may be thousands of debug
 messages per second, so be careful before turning them on.  Info messages tell
-about interesting events that don't happen that frequently.  Bochs produces an
-"error" message when it finds a condition that really shouldn't happen,  but
-doesn't endanger the simulation.  An example of an error might be if the
-emulated software produces an illegal disk command.  Panic messages mean that
-Bochs cannot simulate correctly and should probably shut down.
-A panic can be a configuration problem (like a misspelled bochsrc line) or an
-emulation problem (like an unsupported video mode).
+about interesting events that don't happen that frequently. Warn events can be
+used to show important messages to the user. By default it brings up a
+message box. Bochs produces an "error" message when it finds a condition that
+really shouldn't happen,  but doesn't endanger the simulation.  An example of
+an error might be if the emulated software produces an illegal disk command.
+Panic messages mean that Bochs cannot simulate correctly and should probably
+shut down. A panic can be a configuration problem (like a misspelled bochsrc
+line) or an emulation problem (like an unsupported video mode).
 </para>
 
 <para>
-The debug, info, error, and panic lines in the bochsrc control what Bochs will
-do when it encounters each type of event.  The allowed actions are: fatal
+The debug, info, warn, error, and panic lines in the bochsrc control what Bochs
+will do when it encounters each type of event.  The allowed actions are: fatal
 (terminate Bochs), ask (ask the user what to do), warn (show dialog with message
 and continue), report (print information to the console or log file), or ignore
 (do nothing). The recommended settings are listed in the sample above.
@@ -5386,7 +5379,7 @@ steps are done before the simulation is running.
 <para>
 During simulation, Bochs usually generates more or less log output. By default, it
 is sent to the console, otherwise to the specified <link linkend="bochsopt-log">log file</link>.
-The amount of output can be controlled with the <link linkend="bochsopt-debug-info-error-panic">log options</link>
+The amount of output can be controlled with the <link linkend="bochsopt-logevents">log options</link>
 in bochsrc, the start menu and the runtime configuration.
 </para>
 <para>
@@ -6893,7 +6886,7 @@ bit will be clear, so the next TD will be processed anyway.
     </para>
     <para>
       You can tell Bochs what to do in case of a panic, by re-configuring the
-      <link linkend="bochsopt-debug-info-error-panic">panic option</link>. If
+      <link linkend="bochsopt-logevents">panic option</link>. If
       you change the action to "ask", Bochs reports what has happened and asks
       you what to do. The appearance of the "ask" feature depends on the display
       library used and the platform. Some display libraries don't support it at all.
@@ -7230,6 +7223,12 @@ From here, you may use the following commands:
 
   s     all [count]           for SMP simulation, execute count instructions on all cpus
   step  all [count]
+
+  n                           execute instruction stepping over subroutines
+  next
+  p
+
+  rla   addr                  continue executing until the linear address 'addr' is reached
 
   Ctrl-C                      stop execution, and return to command line prompt
   Ctrl-D                      if at empty line on command line, exit

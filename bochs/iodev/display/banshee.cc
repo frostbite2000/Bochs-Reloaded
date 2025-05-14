@@ -153,17 +153,17 @@ void bx_banshee_c::init_model(void)
   is_agp = SIM->is_agp_device(BX_PLUGIN_VOODOO);
   if (s.model == VOODOO_BANSHEE) {
     if (!is_agp) {
-      strcpy(model, "Experimental 3dfx Voodoo Banshee PCI");
+      strcpy(model, "3dfx Voodoo Banshee PCI");
     } else {
-      strcpy(model, "Experimental 3dfx Voodoo Banshee AGP");
+      strcpy(model, "3dfx Voodoo Banshee AGP");
     }
     DEV_register_pci_handlers2(this, &s.devfunc, BX_PLUGIN_VOODOO, model, is_agp);
     init_pci_conf(0x121a, 0x0003, 0x01, 0x030000, 0x00, BX_PCI_INTA);
   } else if (s.model == VOODOO_3) {
     if (!is_agp) {
-      strcpy(model, "Experimental 3dfx Voodoo 3 PCI");
+      strcpy(model, "3dfx Voodoo 3 PCI");
     } else {
-      strcpy(model, "Experimental 3dfx Voodoo 3 AGP");
+      strcpy(model, "3dfx Voodoo 3 AGP");
     }
     DEV_register_pci_handlers2(this, &s.devfunc, BX_PLUGIN_VOODOO, model, is_agp);
     init_pci_conf(0x121a, 0x0005, 0x01, 0x030000, 0x00, BX_PCI_INTA);
@@ -398,10 +398,10 @@ void bx_banshee_c::draw_hwcursor(unsigned xc, unsigned yc, bx_svga_tileinfo_t *i
     h = s.vdraw.height;
   } else {
     tile_ptr = bx_gui->graphics_tile_get(xc, yc, &w, &h);
-    if (v->banshee.double_width) {
-      hwcx <<= 1;
-      hwcwm1 <<= 1;
-    }
+  }
+  if (v->banshee.double_width) {
+    hwcx <<= 1;
+    hwcwm1 <<= 1;
   }
   if ((xc <= hwcx) && ((int)(xc + w) > (hwcx - hwcwm1)) &&
       (yc <= hwcy) && ((int)(yc + h) > (hwcy - 63))) {
@@ -704,8 +704,18 @@ bool bx_banshee_c::update(void)
         tile_ptr = bx_gui->get_snapshot_buffer();
         if (tile_ptr != NULL) {
           for (yc = 0; yc < iHeight; yc++) {
-            memcpy(tile_ptr, vid_ptr, info.pitch);
-            vid_ptr += pitch;
+            vid_ptr2  = vid_ptr;
+            tile_ptr2 = tile_ptr;
+            for (xc = 0; xc < iWidth; xc++) {
+              memcpy(tile_ptr2, vid_ptr2, (bpp >> 3));
+              if (!v->banshee.double_width || (xc & 1)) {
+                vid_ptr2 += (bpp >> 3);
+              }
+              tile_ptr2 += (info.bpp >> 3);
+            }
+            if (!v->banshee.half_mode || (yc & 1)) {
+              vid_ptr += pitch;
+            }
             tile_ptr += info.pitch;
           }
           if (v->banshee.hwcursor.enabled) {
