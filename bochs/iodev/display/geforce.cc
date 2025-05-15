@@ -1203,6 +1203,11 @@ void bx_geforce_c::svga_write(Bit32u address, Bit32u value, unsigned io_len)
   VGA_WRITE(address,value,io_len);
 }
 
+Bit8u alpha_wrap(int value)
+{
+  return -(value >> 8) ^ value;
+}
+
 void bx_geforce_c::draw_hardware_cursor(unsigned xc, unsigned yc, bx_svga_tileinfo_t *info)
 {
   Bit16s hwcx = BX_GEFORCE_THIS hw_cursor.x;
@@ -1253,11 +1258,11 @@ void bx_geforce_c::draw_hardware_cursor(unsigned xc, unsigned yc, bx_svga_tilein
         }
         Bit32u color;
         if (BX_GEFORCE_THIS hw_cursor.bpp32) {
-          Bit8u alpha = cursor_ptr2[3];
-          if (alpha) {
-            Bit8u b = (db * (0xFF - alpha) >> 8) + cursor_ptr2[0];
-            Bit8u g = (dg * (0xFF - alpha) >> 8) + cursor_ptr2[1];
-            Bit8u r = (dr * (0xFF - alpha) >> 8) + cursor_ptr2[2];
+          if (*(Bit32u*)cursor_ptr2) {
+            Bit8u ica = 0xFF - cursor_ptr2[3];
+            Bit8u b = alpha_wrap(db * ica / 0xFF + cursor_ptr2[0]);
+            Bit8u g = alpha_wrap(dg * ica / 0xFF + cursor_ptr2[1]);
+            Bit8u r = alpha_wrap(dr * ica / 0xFF + cursor_ptr2[2]);
             color = b << 0 | g << 8 | r << 16;
           } else {
             color = db << 0 | dg << 8 | dr << 16;
@@ -2399,10 +2404,10 @@ void bx_geforce_c::pixel_operation(Bit32u chid, Bit32u op,
       Bit8u dr = *dstcolor >> 16;
       Bit8u da = *dstcolor >> 24;
       Bit8u isa = 0xFF - sa;
-      Bit8u b = BX_MIN(db * isa / 0xFF + sb, 0xFF);
-      Bit8u g = BX_MIN(dg * isa / 0xFF + sg, 0xFF);
-      Bit8u r = BX_MIN(dr * isa / 0xFF + sr, 0xFF);
-      Bit8u a = BX_MIN(da * isa / 0xFF + sa, 0xFF);
+      Bit8u b = alpha_wrap(db * isa / 0xFF + sb);
+      Bit8u g = alpha_wrap(dg * isa / 0xFF + sg);
+      Bit8u r = alpha_wrap(dr * isa / 0xFF + sr);
+      Bit8u a = alpha_wrap(da * isa / 0xFF + sa);
       *dstcolor = b << 0 | g << 8 | r << 16 | a << 24;
     }
   } else {
@@ -2769,22 +2774,24 @@ void bx_geforce_c::execute_gdi(Bit32u chid, Bit32u method, Bit32u param)
     BX_GEFORCE_THIS chs[chid].gdi_color_fmt = param;
   else if (method == 0x0ff)
     BX_GEFORCE_THIS chs[chid].gdi_rect_color = param;
-  else if (method == 0x100)
-    BX_GEFORCE_THIS chs[chid].gdi_rect_xy = param;
-  else if (method == 0x101) {
-    BX_GEFORCE_THIS chs[chid].gdi_rect_wh = param;
-    gdi_fillrect(chid, false);
+  else if (method >= 0x100 && method < 0x140) {
+    if (method & 1) {
+      BX_GEFORCE_THIS chs[chid].gdi_rect_wh = param;
+      gdi_fillrect(chid, false);
+    } else
+      BX_GEFORCE_THIS chs[chid].gdi_rect_xy = param;
   } else if (method == 0x17d)
     BX_GEFORCE_THIS chs[chid].gdi_clip_yx0 = param;
   else if (method == 0x17e)
     BX_GEFORCE_THIS chs[chid].gdi_clip_yx1 = param;
   else if (method == 0x17f)
     BX_GEFORCE_THIS chs[chid].gdi_rect_color = param;
-  else if (method == 0x180)
-    BX_GEFORCE_THIS chs[chid].gdi_rect_yx0 = param;
-  else if (method == 0x181) {
-    BX_GEFORCE_THIS chs[chid].gdi_rect_yx1 = param;
-    gdi_fillrect(chid, true);
+  else if (method >= 0x180 && method < 0x1c0) {
+    if (method & 1) {
+      BX_GEFORCE_THIS chs[chid].gdi_rect_yx1 = param;
+      gdi_fillrect(chid, true);
+    } else
+      BX_GEFORCE_THIS chs[chid].gdi_rect_yx0 = param;
   } else if (method == 0x1fd)
     BX_GEFORCE_THIS chs[chid].gdi_fg_color = param;
   else if (method == 0x1fe)
