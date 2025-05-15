@@ -23,6 +23,7 @@
 #define BX_PLUGGABLE
 
 #include "iodev.h"
+#include <math.h>
 #include "vgacore.h"
 #include "pci.h"
 #define BX_USE_BINARY_ROP
@@ -484,6 +485,134 @@ void bx_geforce_c::reset(unsigned type)
   BX_GEFORCE_THIS svga_init_members();
   // Disable ROM shadowing to allow clearing of VRAM
   BX_GEFORCE_THIS pci_conf[0x50] = 0x00;
+  
+  // Reset 3D core state for each channel
+  for (int chid = 0; chid < GEFORCE_CHANNEL_COUNT; chid++) {
+    // Initialize transformation matrices to identity
+    for (int i = 0; i < 16; i++) {
+      // Set diagonal elements to 1.0, all others to 0.0
+      if (i % 5 == 0) { // diagonal elements (0,0), (1,1), (2,2), (3,3)
+        BX_GEFORCE_THIS chs[chid].core3d.modelview_matrix[i] = 1.0f;
+        BX_GEFORCE_THIS chs[chid].core3d.projection_matrix[i] = 1.0f;
+        BX_GEFORCE_THIS chs[chid].core3d.composite_matrix[i] = 1.0f;
+        for (int t = 0; t < GEFORCE_TEXTURE_UNITS; t++) {
+          BX_GEFORCE_THIS chs[chid].core3d.texture_matrix[t][i] = 1.0f;
+        }
+      } else {
+        BX_GEFORCE_THIS chs[chid].core3d.modelview_matrix[i] = 0.0f;
+        BX_GEFORCE_THIS chs[chid].core3d.projection_matrix[i] = 0.0f;
+        BX_GEFORCE_THIS chs[chid].core3d.composite_matrix[i] = 0.0f;
+        for (int t = 0; t < GEFORCE_TEXTURE_UNITS; t++) {
+          BX_GEFORCE_THIS chs[chid].core3d.texture_matrix[t][i] = 0.0f;
+        }
+      }
+    }
+    
+    // Reset vertex state
+    BX_GEFORCE_THIS chs[chid].core3d.vertex_buffer = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.vertex_format = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.vertex_count = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.current_vertex_index = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.current_component_index = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.num_vertices = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.num_triangles = 0;
+    
+    // Reset texture state
+    for (int t = 0; t < GEFORCE_TEXTURE_UNITS; t++) {
+      BX_GEFORCE_THIS chs[chid].core3d.texture_addr[t] = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_format[t] = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_filter[t] = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_control[t] = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_env[t] = 0;
+    }
+    BX_GEFORCE_THIS chs[chid].core3d.active_texture = 0;
+    
+    // Reset rasterization state
+    BX_GEFORCE_THIS chs[chid].core3d.polygon_mode = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.blend_func = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.blend_color = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.depth_func = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.stencil_func = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.stencil_op = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.fog_mode = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.fog_color = 0;
+    for (int i = 0; i < 4; i++) {
+      BX_GEFORCE_THIS chs[chid].core3d.fog_params[i] = 0.0f;
+    }
+    
+    // Reset viewport and clipping
+    BX_GEFORCE_THIS chs[chid].core3d.viewport[0] = 0.0f;
+    BX_GEFORCE_THIS chs[chid].core3d.viewport[1] = 0.0f;
+    BX_GEFORCE_THIS chs[chid].core3d.viewport[2] = 640.0f;
+    BX_GEFORCE_THIS chs[chid].core3d.viewport[3] = 480.0f;
+    BX_GEFORCE_THIS chs[chid].core3d.depth_range[0] = 0.0f;
+    BX_GEFORCE_THIS chs[chid].core3d.depth_range[1] = 1.0f;
+    BX_GEFORCE_THIS chs[chid].core3d.clip_control = 0;
+    for (int i = 0; i < 4; i++) {
+      BX_GEFORCE_THIS chs[chid].core3d.scissor_rect[i] = 0;
+    }
+    BX_GEFORCE_THIS chs[chid].core3d.cull_mode = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.polygon_offset = 0;
+    
+    // Reset lighting
+    BX_GEFORCE_THIS chs[chid].core3d.light_model = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.lighting_enable = 0;
+    for (int i = 0; i < 4; i++) {
+      BX_GEFORCE_THIS chs[chid].core3d.ambient_light[i] = 0.2f;  // Default ambient light
+    }
+    
+    for (int l = 0; l < 8; l++) {
+      BX_GEFORCE_THIS chs[chid].core3d.lights[l].enabled = false;
+      for (int i = 0; i < 4; i++) {
+        BX_GEFORCE_THIS chs[chid].core3d.lights[l].position[i] = 0.0f;
+        if (i < 3) {
+          BX_GEFORCE_THIS chs[chid].core3d.lights[l].direction[i] = 0.0f;
+        }
+        BX_GEFORCE_THIS chs[chid].core3d.lights[l].color[i] = (i < 3) ? 1.0f : 1.0f;
+      }
+      BX_GEFORCE_THIS chs[chid].core3d.lights[l].attenuation[0] = 1.0f;
+      BX_GEFORCE_THIS chs[chid].core3d.lights[l].attenuation[1] = 0.0f;
+      BX_GEFORCE_THIS chs[chid].core3d.lights[l].attenuation[2] = 0.0f;
+      BX_GEFORCE_THIS chs[chid].core3d.lights[l].spot_params[0] = 0.0f;
+      BX_GEFORCE_THIS chs[chid].core3d.lights[l].spot_params[1] = 180.0f;
+    }
+    
+    // Reset pipeline control
+    BX_GEFORCE_THIS chs[chid].core3d.cache_state = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.pipeline_flags = 0;
+    
+    // Reset shaders
+    BX_GEFORCE_THIS chs[chid].core3d.vertex_program = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.fragment_program = 0;
+    memset(BX_GEFORCE_THIS chs[chid].core3d.vertex_program_data, 0, sizeof(BX_GEFORCE_THIS chs[chid].core3d.vertex_program_data));
+    memset(BX_GEFORCE_THIS chs[chid].core3d.fragment_program_data, 0, sizeof(BX_GEFORCE_THIS chs[chid].core3d.fragment_program_data));
+    
+    // Reset render targets
+    BX_GEFORCE_THIS chs[chid].core3d.render_target = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.z_buffer = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.color_mask = 0xF; // All color channels enabled
+    
+    // Reset geometry data
+    BX_GEFORCE_THIS chs[chid].core3d.num_vertices = 0;
+    BX_GEFORCE_THIS chs[chid].core3d.num_triangles = 0;
+    
+    // Reset state cache flags
+    BX_GEFORCE_THIS chs[chid].core3d.state_dirty = 0xFFFFFFFF; // Mark all state as dirty
+    BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty = true;
+    BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty = true;
+    BX_GEFORCE_THIS chs[chid].core3d.texture_dirty = true;
+    
+    // Init textures
+    for (int i = 0; i < GEFORCE_MAX_TEXTURES; i++) {
+      BX_GEFORCE_THIS chs[chid].core3d.textures[i].width = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.textures[i].height = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.textures[i].format = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.textures[i].address = 0;
+      BX_GEFORCE_THIS chs[chid].core3d.textures[i].mipmap_levels = 1;
+      BX_GEFORCE_THIS chs[chid].core3d.textures[i].bilinear = false;
+      BX_GEFORCE_THIS chs[chid].core3d.textures[i].mipmapped = false;
+    }
+  }
 }
 
 void bx_geforce_c::register_state(void)
@@ -502,6 +631,38 @@ void bx_geforce_c::register_state(void)
   new bx_shadow_num_c(list, "svga_dispbpp", &BX_GEFORCE_THIS svga_dispbpp);
   new bx_shadow_num_c(list, "bank_base0", &BX_GEFORCE_THIS bank_base[0], BASE_HEX);
   new bx_shadow_num_c(list, "bank_base1", &BX_GEFORCE_THIS bank_base[1], BASE_HEX);
+  
+  // Register 3D core state
+  bx_list_c *core3d_list = new bx_list_c(list, "3d_core", "3D Core State");
+  for (int chid = 0; chid < GEFORCE_CHANNEL_COUNT; chid++) {
+    char channel_name[16];
+    sprintf(channel_name, "channel_%d", chid);
+    bx_list_c *channel = new bx_list_c(core3d_list, channel_name);
+    
+    // Vertex state
+    new bx_shadow_num_c(channel, "vertex_buffer", &BX_GEFORCE_THIS chs[chid].core3d.vertex_buffer, BASE_HEX);
+    new bx_shadow_num_c(channel, "vertex_format", &BX_GEFORCE_THIS chs[chid].core3d.vertex_format, BASE_HEX);
+    new bx_shadow_num_c(channel, "vertex_count", &BX_GEFORCE_THIS chs[chid].core3d.vertex_count);
+    
+    // Texture state
+    new bx_shadow_num_c(channel, "texture_addr", &BX_GEFORCE_THIS chs[chid].core3d.texture_addr, BASE_HEX);
+    new bx_shadow_num_c(channel, "texture_format", &BX_GEFORCE_THIS chs[chid].core3d.texture_format, BASE_HEX);
+    new bx_shadow_num_c(channel, "texture_filter", &BX_GEFORCE_THIS chs[chid].core3d.texture_filter, BASE_HEX);
+    new bx_shadow_num_c(channel, "texture_control", &BX_GEFORCE_THIS chs[chid].core3d.texture_control, BASE_HEX);
+    
+    // Rasterization state
+    new bx_shadow_num_c(channel, "polygon_mode", &BX_GEFORCE_THIS chs[chid].core3d.polygon_mode, BASE_HEX);
+    new bx_shadow_num_c(channel, "blend_func", &BX_GEFORCE_THIS chs[chid].core3d.blend_func, BASE_HEX);
+    new bx_shadow_num_c(channel, "blend_color", &BX_GEFORCE_THIS chs[chid].core3d.blend_color, BASE_HEX);
+    new bx_shadow_num_c(channel, "depth_func", &BX_GEFORCE_THIS chs[chid].core3d.depth_func, BASE_HEX);
+    new bx_shadow_num_c(channel, "stencil_func", &BX_GEFORCE_THIS chs[chid].core3d.stencil_func, BASE_HEX);
+    new bx_shadow_num_c(channel, "stencil_op", &BX_GEFORCE_THIS chs[chid].core3d.stencil_op, BASE_HEX);
+    
+    // Pipeline control
+    new bx_shadow_num_c(channel, "cache_state", &BX_GEFORCE_THIS chs[chid].core3d.cache_state, BASE_HEX);
+    new bx_shadow_num_c(channel, "pipeline_flags", &BX_GEFORCE_THIS chs[chid].core3d.pipeline_flags, BASE_HEX);
+  }
+  
   bx_list_c *cursor = new bx_list_c(list, "hw_cursor");
   new bx_shadow_num_c(cursor, "x", &BX_GEFORCE_THIS hw_cursor.x, BASE_HEX);
   new bx_shadow_num_c(cursor, "y", &BX_GEFORCE_THIS hw_cursor.y, BASE_HEX);
@@ -2988,6 +3149,8 @@ bool bx_geforce_c::execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit3
           execute_beta(chid, method, param);
         else if (cls == 0x89)
           execute_sifm(chid, method, param);
+        else if (cls == 0x97)
+          execute_method_3d(chid, method, param);
         if (BX_GEFORCE_THIS chs[chid].notify_pending) {
           BX_GEFORCE_THIS chs[chid].notify_pending = false;
           if ((ramin_read32(BX_GEFORCE_THIS chs[chid].schs[subc].notifier) & 0xFF) == 0x30) {
@@ -3630,5 +3793,1399 @@ void bx_geforce_c::debug_dump(int argc, char **argv)
   bx_vgacore_c::debug_dump(argc, argv);
 }
 #endif
+
+// Matrix and vector operations
+void bx_geforce_c::matrix_multiply(float *result, const float *a, const float *b)
+{
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 4; j++) {
+      result[i * 4 + j] = 0.0f;
+      for (int k = 0; k < 4; k++) {
+        result[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
+      }
+    }
+  }
+}
+
+void bx_geforce_c::transform_vertex(float *dst, const float *matrix, const float *src)
+{
+  // Apply 4x4 matrix transformation to the vertex
+  for (int i = 0; i < 4; i++) {
+    dst[i] = 0.0f;
+    for (int j = 0; j < 4; j++) {
+      dst[i] += matrix[i * 4 + j] * src[j];
+    }
+  }
+}
+
+void bx_geforce_c::apply_vertex_transforms(Bit32u chid)
+{
+  // Create the composite matrix (modelview * projection)
+  matrix_multiply(BX_GEFORCE_THIS chs[chid].core3d.composite_matrix,
+                 BX_GEFORCE_THIS chs[chid].core3d.modelview_matrix,
+                 BX_GEFORCE_THIS chs[chid].core3d.projection_matrix);
+  
+  // Reset the 'dirty' flag after update
+  BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty = false;
+}
+
+void bx_geforce_c::apply_lighting(Bit32u chid, geforce_vertex_t *v)
+{
+  // Check if lighting is enabled
+  if (!(BX_GEFORCE_THIS chs[chid].core3d.lighting_enable)) {
+    return;
+  }
+  
+  // Start with ambient light
+  float r = BX_GEFORCE_THIS chs[chid].core3d.ambient_light[0];
+  float g = BX_GEFORCE_THIS chs[chid].core3d.ambient_light[1];
+  float b = BX_GEFORCE_THIS chs[chid].core3d.ambient_light[2];
+  float a = BX_GEFORCE_THIS chs[chid].core3d.ambient_light[3];
+  
+  // Process enabled lights
+  for (int i = 0; i < 8; i++) {
+    if (BX_GEFORCE_THIS chs[chid].core3d.lights[i].enabled) {
+      // Calculate the light vector
+      float light_vec[3];
+      light_vec[0] = BX_GEFORCE_THIS chs[chid].core3d.lights[i].position[0] - v->x;
+      light_vec[1] = BX_GEFORCE_THIS chs[chid].core3d.lights[i].position[1] - v->y;
+      light_vec[2] = BX_GEFORCE_THIS chs[chid].core3d.lights[i].position[2] - v->z;
+      
+      // Normalize the light vector
+      float length = sqrt(light_vec[0] * light_vec[0] + 
+                          light_vec[1] * light_vec[1] + 
+                          light_vec[2] * light_vec[2]);
+      if (length > 0.0001f) {
+        light_vec[0] /= length;
+        light_vec[1] /= length;
+        light_vec[2] /= length;
+      }
+      
+      // Calculate the dot product of the normal and light vector
+      float dot = v->nx * light_vec[0] + v->ny * light_vec[1] + v->nz * light_vec[2];
+      if (dot < 0.0f) dot = 0.0f;
+      
+      // Add the diffuse contribution
+      r += BX_GEFORCE_THIS chs[chid].core3d.lights[i].color[0] * dot;
+      g += BX_GEFORCE_THIS chs[chid].core3d.lights[i].color[1] * dot;
+      b += BX_GEFORCE_THIS chs[chid].core3d.lights[i].color[2] * dot;
+      
+      // Calculate specular contribution with viewer at infinity
+      float spec = 0.0f;
+      if (dot > 0.0f) {
+        float reflect[3];
+        reflect[0] = 2.0f * dot * v->nx - light_vec[0];
+        reflect[1] = 2.0f * dot * v->ny - light_vec[1];
+        reflect[2] = 2.0f * dot * v->nz - light_vec[2];
+        
+        // Viewer at (0, 0, 1)
+        spec = reflect[2];
+        if (spec < 0.0f) spec = 0.0f;
+        
+        // Apply specular exponent (simplified)
+        spec = pow(spec, 32.0f); // Use a fixed exponent for now
+      }
+      
+      // Add the specular contribution
+      r += BX_GEFORCE_THIS chs[chid].core3d.lights[i].color[0] * spec;
+      g += BX_GEFORCE_THIS chs[chid].core3d.lights[i].color[1] * spec;
+      b += BX_GEFORCE_THIS chs[chid].core3d.lights[i].color[2] * spec;
+    }
+  }
+  
+  // Clamp the final color
+  v->r = (r > 1.0f) ? 1.0f : r;
+  v->g = (g > 1.0f) ? 1.0f : g;
+  v->b = (b > 1.0f) ? 1.0f : b;
+  v->a = (a > 1.0f) ? 1.0f : a;
+  
+  // Reset the 'dirty' flag after update
+  BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty = false;
+}
+
+Bit32u bx_geforce_c::sample_texture(Bit32u chid, int tex_unit, float u, float v)
+{
+  if (tex_unit >= GEFORCE_TEXTURE_UNITS) {
+    BX_ERROR(("sample_texture: Invalid texture unit %d", tex_unit));
+    return 0xFFFFFFFF;  // Return white as error color
+  }
+  
+  // Get texture parameters for the specified texture unit
+  Bit32u tex_addr = BX_GEFORCE_THIS chs[chid].core3d.texture_addr[tex_unit];
+  Bit32u tex_format = BX_GEFORCE_THIS chs[chid].core3d.texture_format[tex_unit];
+  Bit32u tex_filter = BX_GEFORCE_THIS chs[chid].core3d.texture_filter[tex_unit];
+  
+  // Simplified implementation - just create a checkerboard pattern
+  // In a real implementation, we would read from texture memory
+  // If no texture is bound or texture is invalid, return a test pattern
+  if (tex_addr == 0) {
+    Bit32u pattern = ((int)(u * 16.0f) & 1) ^ ((int)(v * 16.0f) & 1);
+    if (pattern) {
+      return 0xFFFFFFFF;  // White
+    } else {
+      return 0xFF808080;  // Gray
+    }
+  }
+  
+  // Find the texture info
+  geforce_texture_t *texture = NULL;
+  for (Bit32u i = 0; i < BX_GEFORCE_THIS chs[chid].core3d.num_textures; i++) {
+    if (BX_GEFORCE_THIS chs[chid].core3d.textures[i].address == tex_addr) {
+      texture = &BX_GEFORCE_THIS chs[chid].core3d.textures[i];
+      break;
+    }
+  }
+  
+  if (texture == NULL) {
+    BX_DEBUG(("sample_texture: Texture not found at address 0x%08x", tex_addr));
+    Bit32u pattern = ((int)(u * 16.0f) & 1) ^ ((int)(v * 16.0f) & 1);
+    if (pattern) {
+      return 0xFFFF00FF;  // Magenta for missing texture
+    } else {
+      return 0xFF00FFFF;  // Cyan for missing texture
+    }
+  }
+  
+  // Wrap or clamp the texture coordinates
+  if (u < 0.0f) u = 0.0f;
+  if (u > 1.0f) u = 1.0f;
+  if (v < 0.0f) v = 0.0f;
+  if (v > 1.0f) v = 1.0f;
+  
+  // Convert texture coordinates to texel coordinates
+  float tx = u * (float)(texture->width - 1);
+  float ty = v * (float)(texture->height - 1);
+  
+  // Get texel coordinates
+  Bit32u x0 = (Bit32u)tx;
+  Bit32u y0 = (Bit32u)ty;
+  Bit32u x1 = (x0 + 1) < texture->width ? x0 + 1 : x0;
+  Bit32u y1 = (y0 + 1) < texture->height ? y0 + 1 : y0;
+  
+  // Calculate the fractional parts for bilinear filtering
+  float fx = tx - (float)x0;
+  float fy = ty - (float)y0;
+  
+  // Calculate texture offsets for the four nearest texels
+  Bit32u offset00 = texture->address + (y0 * texture->width + x0) * 4;
+  Bit32u offset01 = texture->address + (y0 * texture->width + x1) * 4;
+  Bit32u offset10 = texture->address + (y1 * texture->width + x0) * 4;
+  Bit32u offset11 = texture->address + (y1 * texture->width + x1) * 4;
+  
+  // Read texture memory
+  Bit32u color00 = BX_GEFORCE_THIS vram_read32(offset00);
+  Bit32u color01 = BX_GEFORCE_THIS vram_read32(offset01);
+  Bit32u color10 = BX_GEFORCE_THIS vram_read32(offset10);
+  Bit32u color11 = BX_GEFORCE_THIS vram_read32(offset11);
+  
+  // Check for bilinear filtering
+  if (texture->bilinear) {
+    // Extract color components
+    Bit32u r00 = (color00 >> 16) & 0xFF;
+    Bit32u g00 = (color00 >> 8) & 0xFF;
+    Bit32u b00 = color00 & 0xFF;
+    Bit32u a00 = (color00 >> 24) & 0xFF;
+    
+    Bit32u r01 = (color01 >> 16) & 0xFF;
+    Bit32u g01 = (color01 >> 8) & 0xFF;
+    Bit32u b01 = color01 & 0xFF;
+    Bit32u a01 = (color01 >> 24) & 0xFF;
+    
+    Bit32u r10 = (color10 >> 16) & 0xFF;
+    Bit32u g10 = (color10 >> 8) & 0xFF;
+    Bit32u b10 = color10 & 0xFF;
+    Bit32u a10 = (color10 >> 24) & 0xFF;
+    
+    Bit32u r11 = (color11 >> 16) & 0xFF;
+    Bit32u g11 = (color11 >> 8) & 0xFF;
+    Bit32u b11 = color11 & 0xFF;
+    Bit32u a11 = (color11 >> 24) & 0xFF;
+    
+    // Perform bilinear interpolation
+    Bit32u r = (Bit32u)((1.0f - fx) * (1.0f - fy) * r00 +
+                        fx * (1.0f - fy) * r01 +
+                        (1.0f - fx) * fy * r10 +
+                        fx * fy * r11);
+    
+    Bit32u g = (Bit32u)((1.0f - fx) * (1.0f - fy) * g00 +
+                        fx * (1.0f - fy) * g01 +
+                        (1.0f - fx) * fy * g10 +
+                        fx * fy * g11);
+    
+    Bit32u b = (Bit32u)((1.0f - fx) * (1.0f - fy) * b00 +
+                        fx * (1.0f - fy) * b01 +
+                        (1.0f - fx) * fy * b10 +
+                        fx * fy * b11);
+    
+    Bit32u a = (Bit32u)((1.0f - fx) * (1.0f - fy) * a00 +
+                        fx * (1.0f - fy) * a01 +
+                        (1.0f - fx) * fy * a10 +
+                        fx * fy * a11);
+    
+    // Combine interpolated components
+    return (a << 24) | (r << 16) | (g << 8) | b;
+  } else {
+    // Just return the nearest texel
+    return color00;
+  }
+}
+
+void bx_geforce_c::rasterize_triangle(Bit32u chid, const geforce_triangle_t *tri)
+{
+  // Get the three vertices of the triangle
+  const geforce_vertex_t *v0 = &BX_GEFORCE_THIS chs[chid].core3d.vertices[tri->v0];
+  const geforce_vertex_t *v1 = &BX_GEFORCE_THIS chs[chid].core3d.vertices[tri->v1];
+  const geforce_vertex_t *v2 = &BX_GEFORCE_THIS chs[chid].core3d.vertices[tri->v2];
+  
+  // Perform backface culling if enabled
+  if (tri->backface_cull) {
+    float normal_x = (v1->y - v0->y) * (v2->z - v0->z) - (v1->z - v0->z) * (v2->y - v0->y);
+    float normal_y = (v1->z - v0->z) * (v2->x - v0->x) - (v1->x - v0->x) * (v2->z - v0->z);
+    float normal_z = (v1->x - v0->x) * (v2->y - v0->y) - (v1->y - v0->y) * (v2->x - v0->x);
+    
+    // If normal points away from viewer, cull this triangle
+    if (normal_z < 0.0f) {
+      return;
+    }
+  }
+  
+  // Convert from 3D coordinates to screen coordinates
+  Bit32s x0 = (Bit32s)((v0->x + 1.0f) * 0.5f * BX_GEFORCE_THIS chs[chid].core3d.viewport[2] + BX_GEFORCE_THIS chs[chid].core3d.viewport[0]);
+  Bit32s y0 = (Bit32s)((v0->y + 1.0f) * 0.5f * BX_GEFORCE_THIS chs[chid].core3d.viewport[3] + BX_GEFORCE_THIS chs[chid].core3d.viewport[1]);
+  Bit32s x1 = (Bit32s)((v1->x + 1.0f) * 0.5f * BX_GEFORCE_THIS chs[chid].core3d.viewport[2] + BX_GEFORCE_THIS chs[chid].core3d.viewport[0]);
+  Bit32s y1 = (Bit32s)((v1->y + 1.0f) * 0.5f * BX_GEFORCE_THIS chs[chid].core3d.viewport[3] + BX_GEFORCE_THIS chs[chid].core3d.viewport[1]);
+  Bit32s x2 = (Bit32s)((v2->x + 1.0f) * 0.5f * BX_GEFORCE_THIS chs[chid].core3d.viewport[2] + BX_GEFORCE_THIS chs[chid].core3d.viewport[0]);
+  Bit32s y2 = (Bit32s)((v2->y + 1.0f) * 0.5f * BX_GEFORCE_THIS chs[chid].core3d.viewport[3] + BX_GEFORCE_THIS chs[chid].core3d.viewport[1]);
+  
+  // Find bounding box of the triangle
+  Bit32s min_x = x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2);
+  Bit32s min_y = y0 < y1 ? (y0 < y2 ? y0 : y2) : (y1 < y2 ? y1 : y2);
+  Bit32s max_x = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
+  Bit32s max_y = y0 > y1 ? (y0 > y2 ? y0 : y2) : (y1 > y2 ? y1 : y2);
+  
+  // Clip to viewport
+  if (min_x < (Bit32s)BX_GEFORCE_THIS chs[chid].core3d.viewport[0]) min_x = (Bit32s)BX_GEFORCE_THIS chs[chid].core3d.viewport[0];
+  if (min_y < (Bit32s)BX_GEFORCE_THIS chs[chid].core3d.viewport[1]) min_y = (Bit32s)BX_GEFORCE_THIS chs[chid].core3d.viewport[1];
+  if (max_x >= (Bit32s)(BX_GEFORCE_THIS chs[chid].core3d.viewport[0] + BX_GEFORCE_THIS chs[chid].core3d.viewport[2])) 
+    max_x = (Bit32s)(BX_GEFORCE_THIS chs[chid].core3d.viewport[0] + BX_GEFORCE_THIS chs[chid].core3d.viewport[2]) - 1;
+  if (max_y >= (Bit32s)(BX_GEFORCE_THIS chs[chid].core3d.viewport[1] + BX_GEFORCE_THIS chs[chid].core3d.viewport[3]))
+    max_y = (Bit32s)(BX_GEFORCE_THIS chs[chid].core3d.viewport[1] + BX_GEFORCE_THIS chs[chid].core3d.viewport[3]) - 1;
+  
+  // Triangle setup - calculate edge equations
+  Bit32s a01 = y0 - y1, b01 = x1 - x0, c01 = x0*y1 - x1*y0;
+  Bit32s a12 = y1 - y2, b12 = x2 - x1, c12 = x1*y2 - x2*y1;
+  Bit32s a20 = y2 - y0, b20 = x0 - x2, c20 = x2*y0 - x0*y2;
+  
+  // Calculate twice the signed area of the triangle
+  Bit32s area = a01*x2 + b01*y2 + c01;
+  
+  // Skip degenerate triangles
+  if (area == 0) return;
+  
+  // Determine if the triangle is clockwise or counter-clockwise
+  bool clockwise = area < 0;
+  
+  // Adjust edge equations to ensure proper orientation
+  if (clockwise) {
+    a01 = -a01; b01 = -b01; c01 = -c01;
+    a12 = -a12; b12 = -b12; c12 = -c12;
+    a20 = -a20; b20 = -b20; c20 = -c20;
+    area = -area;
+  }
+  
+  // Calculate initial edge function values at the starting point
+  Bit32s e01 = a01 * min_x + b01 * min_y + c01;
+  Bit32s e12 = a12 * min_x + b12 * min_y + c12;
+  Bit32s e20 = a20 * min_x + b20 * min_y + c20;
+  
+  // For each pixel in the bounding box
+  for (Bit32s y = min_y; y <= max_y; y++) {
+    // Save initial values for the row
+    Bit32s e01_row = e01;
+    Bit32s e12_row = e12;
+    Bit32s e20_row = e20;
+    
+    for (Bit32s x = min_x; x <= max_x; x++) {
+      // Check if the pixel is inside the triangle
+      if (e01 >= 0 && e12 >= 0 && e20 >= 0) {
+        // Calculate barycentric coordinates
+        float w0 = (float)e12 / (float)area;
+        float w1 = (float)e20 / (float)area;
+        float w2 = (float)e01 / (float)area;
+        
+        // Interpolate Z value for depth test
+        float z = w0 * v0->z + w1 * v1->z + w2 * v2->z;
+        
+        // Depth test if Z-buffering is enabled
+        bool pass_depth_test = true;
+        if (tri->zbuffered) {
+          // Get depth buffer address - basic implementation, doesn't handle all cases
+          Bit32u depth_addr = BX_GEFORCE_THIS chs[chid].core3d.z_buffer + 
+                              (y * (Bit32u)BX_GEFORCE_THIS chs[chid].core3d.viewport[2] + x) * 4;
+          float stored_z = *(float*)&BX_GEFORCE_THIS vram_read32(depth_addr);
+          
+          // Depth compare function (assumed LESS for simplicity)
+          if (z >= stored_z) {
+            pass_depth_test = false;
+          } else {
+            // Update Z-buffer
+            BX_GEFORCE_THIS vram_write32(depth_addr, *(Bit32u*)&z);
+          }
+        }
+        
+        if (pass_depth_test) {
+          // Interpolate colors
+          float r = w0 * v0->r + w1 * v1->r + w2 * v2->r;
+          float g = w0 * v0->g + w1 * v1->g + w2 * v2->g;
+          float b = w0 * v0->b + w1 * v1->b + w2 * v2->b;
+          float a = w0 * v0->a + w1 * v1->a + w2 * v2->a;
+          
+          // Calculate the final pixel color
+          Bit32u color = ((Bit32u)(a * 255.0f) << 24) | 
+                         ((Bit32u)(r * 255.0f) << 16) | 
+                         ((Bit32u)(g * 255.0f) << 8) | 
+                         ((Bit32u)(b * 255.0f));
+          
+          // Apply texturing if enabled
+          if (tri->textured) {
+            // Interpolate texture coordinates
+            float tu0 = w0 * v0->tu[0] + w1 * v1->tu[0] + w2 * v2->tu[0];
+            float tv0 = w0 * v0->tv[0] + w1 * v1->tv[0] + w2 * v2->tv[0];
+            
+            // Sample the texture
+            Bit32u tex_color = sample_texture(chid, 0, tu0, tv0);
+            
+            // Modulate with vertex color (simplified)
+            Bit32u tex_r = (tex_color >> 16) & 0xFF;
+            Bit32u tex_g = (tex_color >> 8) & 0xFF;
+            Bit32u tex_b = tex_color & 0xFF;
+            Bit32u tex_a = (tex_color >> 24) & 0xFF;
+            
+            // Modulate with vertex color (simplified)
+            r = (float)tex_r / 255.0f * r;
+            g = (float)tex_g / 255.0f * g;
+            b = (float)tex_b / 255.0f * b;
+            a = (float)tex_a / 255.0f * a;
+            
+            // Update the final pixel color
+            color = ((Bit32u)(a * 255.0f) << 24) | 
+                    ((Bit32u)(r * 255.0f) << 16) | 
+                    ((Bit32u)(g * 255.0f) << 8) | 
+                    ((Bit32u)(b * 255.0f));
+          }
+          
+          // Apply alpha blending if enabled
+          if (tri->blended && a < 1.0f) {
+            // Get the destination pixel
+            Bit32u fb_addr = BX_GEFORCE_THIS chs[chid].core3d.render_target + 
+                            (y * (Bit32u)BX_GEFORCE_THIS chs[chid].core3d.viewport[2] + x) * 4;
+            Bit32u dst_color = BX_GEFORCE_THIS vram_read32(fb_addr);
+            
+            // Extract components
+            Bit32u dst_r = (dst_color >> 16) & 0xFF;
+            Bit32u dst_g = (dst_color >> 8) & 0xFF;
+            Bit32u dst_b = dst_color & 0xFF;
+            Bit32u dst_a = (dst_color >> 24) & 0xFF;
+            
+            // Blend
+            Bit32u src_r = (color >> 16) & 0xFF;
+            Bit32u src_g = (color >> 8) & 0xFF;
+            Bit32u src_b = color & 0xFF;
+            Bit32u src_a = (color >> 24) & 0xFF;
+            
+            // Alpha blend (source over destination)
+            float src_alpha = (float)src_a / 255.0f;
+            float dst_alpha = 1.0f - src_alpha;
+            
+            Bit32u out_r = (Bit32u)(src_alpha * (float)src_r + dst_alpha * (float)dst_r);
+            Bit32u out_g = (Bit32u)(src_alpha * (float)src_g + dst_alpha * (float)dst_g);
+            Bit32u out_b = (Bit32u)(src_alpha * (float)src_b + dst_alpha * (float)dst_b);
+            Bit32u out_a = src_a > dst_a ? src_a : dst_a;
+            
+            color = (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
+          }
+          
+          // Write pixel to framebuffer
+          Bit32u fb_addr = BX_GEFORCE_THIS chs[chid].core3d.render_target + 
+                         (y * (Bit32u)BX_GEFORCE_THIS chs[chid].core3d.viewport[2] + x) * 4;
+          BX_GEFORCE_THIS vram_write32(fb_addr, color);
+        }
+      }
+      
+      // Step to the next pixel in the row
+      e01 += a01;
+      e12 += a12;
+      e20 += a20;
+    }
+    
+    // Step to the next row
+    e01 = e01_row + b01;
+    e12 = e12_row + b12;
+    e20 = e20_row + b20;
+  }
+    // Mark that the display needs updating
+  BX_GEFORCE_THIS svga_needs_update_dispentire = true;
+}
+
+// Process vertex data based on the vertex format and current vertex assembly state
+void bx_geforce_c::process_vertex_data(Bit32u chid, Bit32u param)
+{
+  // Define the bit positions for different vertex format flags
+  #define VERTEX_FORMAT_POSITION   0x01  // Position data (x,y,z,w)
+  #define VERTEX_FORMAT_NORMAL     0x02  // Normal data (nx,ny,nz)
+  #define VERTEX_FORMAT_COLOR      0x04  // Color data (r,g,b,a)
+  #define VERTEX_FORMAT_TEXCOORD0  0x08  // Texture coordinates for unit 0
+  #define VERTEX_FORMAT_TEXCOORD1  0x10  // Texture coordinates for unit 1
+  #define VERTEX_FORMAT_TEXCOORD2  0x20  // Texture coordinates for unit 2
+  #define VERTEX_FORMAT_TEXCOORD3  0x40  // Texture coordinates for unit 3
+
+  // Check if we're building a new vertex or continuing to build an existing one
+  bool new_vertex = false;
+  
+  // Get the vertex format from the core3d state
+  Bit32u vertex_format = BX_GEFORCE_THIS chs[chid].core3d.vertex_format;
+  
+  // Get the current vertex index and component being processed
+  Bit32u vertex_index = BX_GEFORCE_THIS chs[chid].core3d.current_vertex_index;
+  Bit32u component_index = BX_GEFORCE_THIS chs[chid].core3d.current_component_index;
+  
+  // Check for vertex buffer overflow
+  if (vertex_index >= GEFORCE_MAX_VERTICES) {
+    BX_ERROR(("process_vertex_data: Vertex buffer overflow"));
+    return;
+  }
+  
+  // Get the current vertex being built
+  geforce_vertex_t *vertex = &BX_GEFORCE_THIS chs[chid].core3d.vertices[vertex_index];
+  
+  // Interpret the data according to the vertex format and current component index
+  // For simplicity, we'll interpret every data as a float
+  float value = *(float*)&param;
+
+  BX_DEBUG(("process_vertex_data: Processing component %d with value %f", component_index, value));
+  
+  // Process the data based on the current component
+  switch (component_index) {
+    // Position components (x, y, z, w)
+    case 0: // X position
+      if (!(vertex_format & VERTEX_FORMAT_POSITION)) {
+        BX_ERROR(("process_vertex_data: Position format not enabled but position data received"));
+        return;
+      }
+      vertex->x = value;
+      component_index++;
+      break;
+    case 1: // Y position
+      vertex->y = value;
+      component_index++;
+      break;
+    case 2: // Z position
+      vertex->z = value;
+      component_index++;
+      break;
+    case 3: // W position (optional, defaults to 1.0)
+      vertex->w = value;
+      
+      // Move to normal components if normal is part of the format
+      if (vertex_format & VERTEX_FORMAT_NORMAL) {
+        component_index = 4;
+      } else if (vertex_format & VERTEX_FORMAT_COLOR) {
+        component_index = 7;
+      } else if (vertex_format & VERTEX_FORMAT_TEXCOORD0) {
+        component_index = 11;
+      } else {
+        component_index = 0;
+        new_vertex = true;
+      }
+      break;
+      
+    // Normal components (nx, ny, nz)
+    case 4: // X normal
+      if (!(vertex_format & VERTEX_FORMAT_NORMAL)) {
+        BX_ERROR(("process_vertex_data: Normal format not enabled but normal data received"));
+        return;
+      }
+      vertex->nx = value;
+      component_index++;
+      break;
+    case 5: // Y normal
+      vertex->ny = value;
+      component_index++;
+      break;
+    case 6: // Z normal
+      vertex->nz = value;
+      
+      // Normalize the normal vector
+      float norm_length = sqrtf(vertex->nx * vertex->nx + 
+                               vertex->ny * vertex->ny + 
+                               vertex->nz * vertex->nz);
+      if (norm_length > 0.0001f) {
+        vertex->nx /= norm_length;
+        vertex->ny /= norm_length;
+        vertex->nz /= norm_length;
+      }
+      
+      // Move to color components if color is part of the format
+      if (vertex_format & VERTEX_FORMAT_COLOR) {
+        component_index = 7;
+      } else if (vertex_format & VERTEX_FORMAT_TEXCOORD0) {
+        component_index = 11;
+      } else {
+        component_index = 0;
+        new_vertex = true;
+      }
+      break;
+      
+    // Color components (r, g, b, a)
+    case 7: // Red
+      if (!(vertex_format & VERTEX_FORMAT_COLOR)) {
+        BX_ERROR(("process_vertex_data: Color format not enabled but color data received"));
+        return;
+      }
+      vertex->r = value;
+      component_index++;
+      break;
+    case 8: // Green
+      vertex->g = value;
+      component_index++;
+      break;
+    case 9: // Blue
+      vertex->b = value;
+      component_index++;
+      break;
+    case 10: // Alpha
+      vertex->a = value;
+      
+      // Clamp color values to [0,1] range
+      vertex->r = (vertex->r < 0.0f) ? 0.0f : ((vertex->r > 1.0f) ? 1.0f : vertex->r);
+      vertex->g = (vertex->g < 0.0f) ? 0.0f : ((vertex->g > 1.0f) ? 1.0f : vertex->g);
+      vertex->b = (vertex->b < 0.0f) ? 0.0f : ((vertex->b > 1.0f) ? 1.0f : vertex->b);
+      vertex->a = (vertex->a < 0.0f) ? 0.0f : ((vertex->a > 1.0f) ? 1.0f : vertex->a);
+      
+      // Move to texture coordinate components if texcoord is part of the format
+      if (vertex_format & VERTEX_FORMAT_TEXCOORD0) {
+        component_index = 11;
+      } else {
+        component_index = 0;
+        new_vertex = true;
+      }
+      break;
+      
+    // Texture coordinate components for each texture unit
+    case 11: // U coordinate for texture unit 0
+      if (!(vertex_format & VERTEX_FORMAT_TEXCOORD0)) {
+        BX_ERROR(("process_vertex_data: TexCoord0 format not enabled but texcoord data received"));
+        return;
+      }
+      vertex->tu[0] = value;
+      component_index++;
+      break;
+    case 12: // V coordinate for texture unit 0
+      vertex->tv[0] = value;
+      
+      // Move to texture unit 1 if it's part of the format
+      if (vertex_format & VERTEX_FORMAT_TEXCOORD1) {
+        component_index = 13;
+      } else {
+        component_index = 0;
+        new_vertex = true;
+      }
+      break;
+      
+    case 13: // U coordinate for texture unit 1
+      if (!(vertex_format & VERTEX_FORMAT_TEXCOORD1)) {
+        BX_ERROR(("process_vertex_data: TexCoord1 format not enabled but texcoord data received"));
+        return;
+      }
+      vertex->tu[1] = value;
+      component_index++;
+      break;
+    case 14: // V coordinate for texture unit 1
+      vertex->tv[1] = value;
+      
+      // Move to texture unit 2 if it's part of the format
+      if (vertex_format & VERTEX_FORMAT_TEXCOORD2) {
+        component_index = 15;
+      } else {
+        component_index = 0;
+        new_vertex = true;
+      }
+      break;
+      
+    case 15: // U coordinate for texture unit 2
+      if (!(vertex_format & VERTEX_FORMAT_TEXCOORD2)) {
+        BX_ERROR(("process_vertex_data: TexCoord2 format not enabled but texcoord data received"));
+        return;
+      }
+      vertex->tu[2] = value;
+      component_index++;
+      break;
+    case 16: // V coordinate for texture unit 2
+      vertex->tv[2] = value;
+      
+      // Move to texture unit 3 if it's part of the format
+      if (vertex_format & VERTEX_FORMAT_TEXCOORD3) {
+        component_index = 17;
+      } else {
+        component_index = 0;
+        new_vertex = true;
+      }
+      break;
+      
+    case 17: // U coordinate for texture unit 3
+      if (!(vertex_format & VERTEX_FORMAT_TEXCOORD3)) {
+        BX_ERROR(("process_vertex_data: TexCoord3 format not enabled but texcoord data received"));
+        return;
+      }
+      vertex->tu[3] = value;
+      component_index++;
+      break;
+    case 18: // V coordinate for texture unit 3
+      vertex->tv[3] = value;
+      
+      // All components processed, this vertex is complete
+      component_index = 0;
+      new_vertex = true;
+      break;
+      
+    default:      BX_ERROR(("process_vertex_data: Invalid component index %d", component_index));
+      return;
+  }
+  
+  // If the component is completed, set defaults for unspecified components
+  if (new_vertex) {
+    // Ensure w component is valid (default to 1.0 if not specified)
+    if (!(vertex_format & VERTEX_FORMAT_POSITION) || component_index < 3) {
+      vertex->w = 1.0f;
+    }
+    
+    // Set default normal if not specified (pointing up)
+    if (!(vertex_format & VERTEX_FORMAT_NORMAL)) {
+      vertex->nx = 0.0f;
+      vertex->ny = 1.0f;
+      vertex->nz = 0.0f;
+    }
+    
+    // Set default color if not specified (white)
+    if (!(vertex_format & VERTEX_FORMAT_COLOR)) {
+      vertex->r = 1.0f;
+      vertex->g = 1.0f;
+      vertex->b = 1.0f;
+      vertex->a = 1.0f;
+    }
+    
+    // Set default texture coordinates if not specified
+    if (!(vertex_format & VERTEX_FORMAT_TEXCOORD0)) {
+      vertex->tu[0] = 0.0f;
+      vertex->tv[0] = 0.0f;
+    }
+    if (!(vertex_format & VERTEX_FORMAT_TEXCOORD1)) {
+      vertex->tu[1] = 0.0f;
+      vertex->tv[1] = 0.0f;
+    }
+    if (!(vertex_format & VERTEX_FORMAT_TEXCOORD2)) {
+      vertex->tu[2] = 0.0f;
+      vertex->tv[2] = 0.0f;
+    }
+    if (!(vertex_format & VERTEX_FORMAT_TEXCOORD3)) {
+      vertex->tu[3] = 0.0f;
+      vertex->tv[3] = 0.0f;
+    }
+  }
+  
+  // Update the current component index
+  BX_GEFORCE_THIS chs[chid].core3d.current_component_index = component_index;
+  
+  // If this vertex is complete, move to the next one
+  if (new_vertex) {
+    BX_DEBUG(("Vertex completed: x=%f, y=%f, z=%f, w=%f", vertex->x, vertex->y, vertex->z, vertex->w));
+    
+    // Apply transformations to the completed vertex
+    transform_vertex_pipeline(chid, vertex_index);
+    
+    // Increment vertex count and move to the next vertex
+    BX_GEFORCE_THIS chs[chid].core3d.current_vertex_index++;
+    BX_GEFORCE_THIS chs[chid].core3d.num_vertices = 
+      BX_GEFORCE_THIS chs[chid].core3d.current_vertex_index;
+    
+    // Reset the component index for the next vertex
+    BX_GEFORCE_THIS chs[chid].core3d.current_component_index = 0;
+    
+    // Check if we have enough vertices to form a triangle
+    check_and_build_triangle(chid);
+  }
+}
+
+// Apply transformations to a vertex in the pipeline
+void bx_geforce_c::transform_vertex_pipeline(Bit32u chid, Bit32u vertex_index)
+{
+  // Get the vertex to transform
+  geforce_vertex_t *vertex = &BX_GEFORCE_THIS chs[chid].core3d.vertices[vertex_index];
+  
+  // Check if the matrices are dirty (need recalculation)
+  if (BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty) {
+    apply_vertex_transforms(chid);
+  }
+  
+  // Create a temporary vertex for transformation
+  float tmp_vertex[4];
+  float xformed_vertex[4];
+  
+  // Set up the source vertex
+  tmp_vertex[0] = vertex->x;
+  tmp_vertex[1] = vertex->y;
+  tmp_vertex[2] = vertex->z;
+  tmp_vertex[3] = vertex->w;
+  
+  // Apply the composite (modelview-projection) transformation
+  transform_vertex(xformed_vertex, 
+                  BX_GEFORCE_THIS chs[chid].core3d.composite_matrix, 
+                  tmp_vertex);
+  
+  // Update the vertex with transformed coordinates
+  vertex->x = xformed_vertex[0] / xformed_vertex[3];  // Perspective division
+  vertex->y = xformed_vertex[1] / xformed_vertex[3];
+  vertex->z = xformed_vertex[2] / xformed_vertex[3];
+  vertex->w = xformed_vertex[3];
+  
+  // Apply lighting calculations if enabled
+  if (BX_GEFORCE_THIS chs[chid].core3d.lighting_enable) {
+    apply_lighting(chid, vertex);
+  }
+  
+  // Apply texture coordinate transformations
+  transform_texture_coords(chid, vertex_index);
+}
+
+// Transform texture coordinates for each texture unit
+void bx_geforce_c::transform_texture_coords(Bit32u chid, Bit32u vertex_index)
+{
+  // Get the vertex to transform
+  geforce_vertex_t *vertex = &BX_GEFORCE_THIS chs[chid].core3d.vertices[vertex_index];
+  
+  // For each enabled texture unit, apply texture coordinate transformations
+  for (int unit = 0; unit < GEFORCE_TEXTURE_UNITS; unit++) {
+    // Skip if this texture unit isn't used
+    if (!(BX_GEFORCE_THIS chs[chid].core3d.vertex_format & 
+          (VERTEX_FORMAT_TEXCOORD0 << unit))) {
+      continue;
+    }
+    
+    // Input texture coordinates
+    float texcoord[4];
+    texcoord[0] = vertex->tu[unit];
+    texcoord[1] = vertex->tv[unit];
+    texcoord[2] = 0.0f;  // r coordinate (not used in basic implementation)
+    texcoord[3] = 1.0f;  // q coordinate (homogeneous)
+    
+    // Output transformed coordinates
+    float transformed[4];
+    
+    // Apply the texture matrix for this unit
+    transform_vertex(transformed, 
+                    BX_GEFORCE_THIS chs[chid].core3d.texture_matrix[unit], 
+                    texcoord);
+    
+    // Store the transformed coordinates back
+    if (transformed[3] != 0.0f) {
+      vertex->tu[unit] = transformed[0] / transformed[3];
+      vertex->tv[unit] = transformed[1] / transformed[3];
+    } else {
+      vertex->tu[unit] = transformed[0];
+      vertex->tv[unit] = transformed[1];
+    }
+  }
+}
+
+// Check if we have enough vertices to build a triangle, and if so, build it
+void bx_geforce_c::check_and_build_triangle(Bit32u chid)
+{
+  // For simplicity, we'll use a triangle strip topology
+  // In a real implementation, this would depend on the primitive type set in the state
+  
+  // We need at least 3 vertices to form a triangle
+  if (BX_GEFORCE_THIS chs[chid].core3d.num_vertices < 3) {
+    return;
+  }
+  
+  // Get the current triangle count
+  Bit32u triangle_count = BX_GEFORCE_THIS chs[chid].core3d.num_triangles;
+  
+  // Check for triangle buffer overflow
+  if (triangle_count >= GEFORCE_MAX_TRIANGLES) {
+    BX_ERROR(("check_and_build_triangle: Triangle buffer overflow"));
+    return;
+  }
+  
+  // For each new vertex after the first two, create a new triangle
+  Bit32u v0, v1, v2;
+  
+  // For odd indices, maintain consistent winding order
+  if ((BX_GEFORCE_THIS chs[chid].core3d.num_vertices - 3) % 2 == 0) {
+    v0 = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - 3;
+    v1 = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - 2;
+    v2 = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - 1;
+  } else {
+    v0 = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - 3;
+    v1 = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - 1;
+    v2 = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - 2;
+  }
+  
+  // Build the triangle
+  geforce_triangle_t *triangle = &BX_GEFORCE_THIS chs[chid].core3d.triangles[triangle_count];
+  triangle->v0 = v0;
+  triangle->v1 = v1;
+  triangle->v2 = v2;
+  
+  // Set triangle properties based on current state
+  triangle->backface_cull = (BX_GEFORCE_THIS chs[chid].core3d.cull_mode != 0);
+  triangle->textured = (BX_GEFORCE_THIS chs[chid].core3d.texture_addr[0] != 0);
+  triangle->zbuffered = (BX_GEFORCE_THIS chs[chid].core3d.depth_func != 0);
+  triangle->blended = (BX_GEFORCE_THIS chs[chid].core3d.blend_func != 0);
+  
+  // Increment triangle count
+  BX_GEFORCE_THIS chs[chid].core3d.num_triangles++;
+  
+  // Rasterize the triangle
+  rasterize_triangle(chid, triangle);
+  
+  BX_DEBUG(("Triangle created: v0=%d, v1=%d, v2=%d", v0, v1, v2));
+}
+
+void bx_geforce_c::execute_method_3d(Bit32u chid, Bit32u method, Bit32u param)
+{
+  BX_DEBUG(("execute_method_3d: method 0x%03x, param 0x%08x", method, param));
+  
+  // GeForce3 Ti 500 3D core method handler
+  switch (method) {
+    // 3D Core main registers
+    case 0x0100: // NV_PGRAPH_INTR
+      BX_DEBUG(("NV_PGRAPH_INTR: 0x%08x", param));
+      BX_GEFORCE_THIS graph_intr = param;
+      update_irq_level();
+      break;
+      
+    case 0x0140: // NV_PGRAPH_INTR_EN
+      BX_DEBUG(("NV_PGRAPH_INTR_EN: 0x%08x", param));
+      BX_GEFORCE_THIS graph_intr_en = param;
+      update_irq_level();
+      break;
+      
+    case 0x0144: // NV_PGRAPH_NSOURCE
+      BX_DEBUG(("NV_PGRAPH_NSOURCE: 0x%08x", param));
+      BX_GEFORCE_THIS graph_nsource = param;
+      break;
+    
+    // Transformation matrices
+    case 0x0280: // NV_PGRAPH_MODELVIEW_MATRIX_0 through 15
+    case 0x0284:
+    case 0x0288:
+    case 0x028C:
+    case 0x0290:
+    case 0x0294:
+    case 0x0298:
+    case 0x029C:
+    case 0x02A0:
+    case 0x02A4:
+    case 0x02A8:
+    case 0x02AC:
+    case 0x02B0:
+    case 0x02B4:
+    case 0x02B8:
+    case 0x02BC:
+    {
+      int idx = (method - 0x0280) >> 2;
+      float value = *(float*)&param;
+      BX_DEBUG(("NV_PGRAPH_MODELVIEW_MATRIX_%d: %f", idx, value));
+      BX_GEFORCE_THIS chs[chid].core3d.modelview_matrix[idx] = value;
+      BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty = true;
+      break;
+    }
+      
+    case 0x02C0: // NV_PGRAPH_PROJECTION_MATRIX_0 through 15
+    case 0x02C4:
+    case 0x02C8:
+    case 0x02CC:
+    case 0x02D0:
+    case 0x02D4:
+    case 0x02D8:
+    case 0x02DC:
+    case 0x02E0:
+    case 0x02E4:
+    case 0x02E8:
+    case 0x02EC:
+    case 0x02F0:
+    case 0x02F4:
+    case 0x02F8:
+    case 0x02FC:
+    {
+      int idx = (method - 0x02C0) >> 2;
+      float value = *(float*)&param;
+      BX_DEBUG(("NV_PGRAPH_PROJECTION_MATRIX_%d: %f", idx, value));
+      BX_GEFORCE_THIS chs[chid].core3d.projection_matrix[idx] = value;
+      BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty = true;
+      break;
+    }
+    
+    case 0x0300: // NV_PGRAPH_TEXTURE_MATRIX_0 through 15 (for texture unit 0)
+    case 0x0304:
+    case 0x0308:
+    case 0x030C:
+    case 0x0310:
+    case 0x0314:
+    case 0x0318:
+    case 0x031C:
+    case 0x0320:
+    case 0x0324:
+    case 0x0328:
+    case 0x032C:
+    case 0x0330:
+    case 0x0334:
+    case 0x0338:
+    case 0x033C:
+    {
+      int idx = (method - 0x0300) >> 2;
+      float value = *(float*)&param;
+      BX_DEBUG(("NV_PGRAPH_TEXTURE_MATRIX_0_%d: %f", idx, value));
+      BX_GEFORCE_THIS chs[chid].core3d.texture_matrix[0][idx] = value;
+      BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty = true;
+      break;
+    }
+    
+    // Active texture unit
+    case 0x0340: // NV_PGRAPH_ACTIVE_TEXTURE
+      BX_DEBUG(("NV_PGRAPH_ACTIVE_TEXTURE: %d", param));
+      if (param < GEFORCE_TEXTURE_UNITS) {
+        BX_GEFORCE_THIS chs[chid].core3d.active_texture = param;
+      } else {
+        BX_ERROR(("NV_PGRAPH_ACTIVE_TEXTURE: Invalid texture unit %d", param));
+      }
+      break;
+    
+    // Vertex parameters
+    case 0x0380: // NV_PGRAPH_VTXBUF_ADDRESS
+      BX_DEBUG(("NV_PGRAPH_VTXBUF_ADDRESS: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.vertex_buffer = param;
+      break;
+      
+    case 0x0384: // NV_PGRAPH_VTXBUF_FORMAT
+      BX_DEBUG(("NV_PGRAPH_VTXBUF_FORMAT: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.vertex_format = param;
+      break;
+    
+    // Viewport and transform
+    case 0x0390: // NV_PGRAPH_VIEWPORT_X
+      BX_DEBUG(("NV_PGRAPH_VIEWPORT_X: %f", *(float*)&param));
+      BX_GEFORCE_THIS chs[chid].core3d.viewport[0] = *(float*)&param;
+      break;
+    
+    case 0x0394: // NV_PGRAPH_VIEWPORT_Y
+      BX_DEBUG(("NV_PGRAPH_VIEWPORT_Y: %f", *(float*)&param));
+      BX_GEFORCE_THIS chs[chid].core3d.viewport[1] = *(float*)&param;
+      break;
+    
+    case 0x0398: // NV_PGRAPH_VIEWPORT_WIDTH
+      BX_DEBUG(("NV_PGRAPH_VIEWPORT_WIDTH: %f", *(float*)&param));
+      BX_GEFORCE_THIS chs[chid].core3d.viewport[2] = *(float*)&param;
+      break;
+    
+    case 0x039C: // NV_PGRAPH_VIEWPORT_HEIGHT
+      BX_DEBUG(("NV_PGRAPH_VIEWPORT_HEIGHT: %f", *(float*)&param));
+      BX_GEFORCE_THIS chs[chid].core3d.viewport[3] = *(float*)&param;
+      break;
+    
+    case 0x03A0: // NV_PGRAPH_DEPTH_RANGE_NEAR
+      BX_DEBUG(("NV_PGRAPH_DEPTH_RANGE_NEAR: %f", *(float*)&param));
+      BX_GEFORCE_THIS chs[chid].core3d.depth_range[0] = *(float*)&param;
+      break;
+    
+    case 0x03A4: // NV_PGRAPH_DEPTH_RANGE_FAR
+      BX_DEBUG(("NV_PGRAPH_DEPTH_RANGE_FAR: %f", *(float*)&param));
+      BX_GEFORCE_THIS chs[chid].core3d.depth_range[1] = *(float*)&param;
+      break;
+      
+    // Texture units
+    case 0x0400: // NV_PGRAPH_TX_ADDRESS 
+      BX_DEBUG(("NV_PGRAPH_TX_ADDRESS_%d: 0x%08x", 
+                BX_GEFORCE_THIS chs[chid].core3d.active_texture, param));
+      BX_GEFORCE_THIS chs[chid].core3d.texture_addr[BX_GEFORCE_THIS chs[chid].core3d.active_texture] = param;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_dirty = true;
+      break;
+      
+    case 0x0404: // NV_PGRAPH_TX_FORMAT
+      BX_DEBUG(("NV_PGRAPH_TX_FORMAT_%d: 0x%08x", 
+                BX_GEFORCE_THIS chs[chid].core3d.active_texture, param));
+      BX_GEFORCE_THIS chs[chid].core3d.texture_format[BX_GEFORCE_THIS chs[chid].core3d.active_texture] = param;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_dirty = true;
+      break;
+      
+    case 0x0408: // NV_PGRAPH_TX_FILTER
+      BX_DEBUG(("NV_PGRAPH_TX_FILTER_%d: 0x%08x", 
+                BX_GEFORCE_THIS chs[chid].core3d.active_texture, param));
+      BX_GEFORCE_THIS chs[chid].core3d.texture_filter[BX_GEFORCE_THIS chs[chid].core3d.active_texture] = param;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_dirty = true;
+      break;
+      
+    case 0x040C: // NV_PGRAPH_TX_CONTROL
+      BX_DEBUG(("NV_PGRAPH_TX_CONTROL_%d: 0x%08x", 
+                BX_GEFORCE_THIS chs[chid].core3d.active_texture, param));
+      BX_GEFORCE_THIS chs[chid].core3d.texture_control[BX_GEFORCE_THIS chs[chid].core3d.active_texture] = param;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_dirty = true;
+      break;
+      
+    case 0x0410: // NV_PGRAPH_TX_ENV
+      BX_DEBUG(("NV_PGRAPH_TX_ENV_%d: 0x%08x", 
+                BX_GEFORCE_THIS chs[chid].core3d.active_texture, param));
+      BX_GEFORCE_THIS chs[chid].core3d.texture_env[BX_GEFORCE_THIS chs[chid].core3d.active_texture] = param;
+      BX_GEFORCE_THIS chs[chid].core3d.texture_dirty = true;
+      break;
+     
+    // Rasterization and fragment processing 
+    case 0x0500: // NV_PGRAPH_BLEND_FUNC
+      BX_DEBUG(("NV_PGRAPH_BLEND_FUNC: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.blend_func = param;
+      break;
+      
+    case 0x0504: // NV_PGRAPH_BLEND_COLOR
+      BX_DEBUG(("NV_PGRAPH_BLEND_COLOR: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.blend_color = param;
+      break;
+      
+    case 0x0508: // NV_PGRAPH_DEPTH_FUNC
+      BX_DEBUG(("NV_PGRAPH_DEPTH_FUNC: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.depth_func = param;
+      break;
+      
+    case 0x050C: // NV_PGRAPH_STENCIL_FUNC
+      BX_DEBUG(("NV_PGRAPH_STENCIL_FUNC: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.stencil_func = param;
+      break;
+      
+    case 0x0510: // NV_PGRAPH_STENCIL_OP
+      BX_DEBUG(("NV_PGRAPH_STENCIL_OP: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.stencil_op = param;
+      break;
+      
+    case 0x0514: // NV_PGRAPH_POLYGON_MODE
+      BX_DEBUG(("NV_PGRAPH_POLYGON_MODE: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.polygon_mode = param;
+      break;
+      
+    case 0x0518: // NV_PGRAPH_CULL_FACE
+      BX_DEBUG(("NV_PGRAPH_CULL_FACE: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.cull_mode = param;
+      break;
+      
+    case 0x051C: // NV_PGRAPH_POLYGON_OFFSET
+      BX_DEBUG(("NV_PGRAPH_POLYGON_OFFSET: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.polygon_offset = param;
+      break;
+    
+    // Fog
+    case 0x0520: // NV_PGRAPH_FOG_MODE
+      BX_DEBUG(("NV_PGRAPH_FOG_MODE: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.fog_mode = param;
+      break;
+    
+    case 0x0524: // NV_PGRAPH_FOG_COLOR
+      BX_DEBUG(("NV_PGRAPH_FOG_COLOR: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.fog_color = param;
+      break;
+      
+    case 0x0528: // NV_PGRAPH_FOG_PARAM_0
+    case 0x052C: // NV_PGRAPH_FOG_PARAM_1
+    case 0x0530: // NV_PGRAPH_FOG_PARAM_2
+    case 0x0534: // NV_PGRAPH_FOG_PARAM_3
+    {
+      int idx = (method - 0x0528) >> 2;
+      float value = *(float*)&param;
+      BX_DEBUG(("NV_PGRAPH_FOG_PARAM_%d: %f", idx, value));
+      BX_GEFORCE_THIS chs[chid].core3d.fog_params[idx] = value;
+      break;
+    }
+      
+    // Lighting
+    case 0x0540: // NV_PGRAPH_LIGHT_MODEL
+      BX_DEBUG(("NV_PGRAPH_LIGHT_MODEL: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.light_model = param;
+      BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty = true;
+      break;
+      
+    case 0x0544: // NV_PGRAPH_LIGHT_ENABLE
+      BX_DEBUG(("NV_PGRAPH_LIGHT_ENABLE: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.lighting_enable = param;
+      BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty = true;
+      break;
+      
+    case 0x0548: // NV_PGRAPH_AMBIENT_COLOR
+    case 0x054C:
+    case 0x0550:
+    case 0x0554:
+    {
+      int idx = (method - 0x0548) >> 2;
+      float value = *(float*)&param;
+      BX_DEBUG(("NV_PGRAPH_AMBIENT_COLOR[%d]: %f", idx, value));
+      BX_GEFORCE_THIS chs[chid].core3d.ambient_light[idx] = value;
+      BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty = true;
+      break;
+    }
+      
+    case 0x0560: // NV_PGRAPH_LIGHT0_POSITION through NV_PGRAPH_LIGHT7_POSITION
+    case 0x0570:
+    case 0x0580:
+    case 0x0590:
+    case 0x05A0:
+    case 0x05B0:
+    case 0x05C0:
+    case 0x05D0:
+    {
+      int light = ((method - 0x0560) >> 4) & 0x7;
+      int comp = (method >> 2) & 0x3;
+      float value = *(float*)&param;
+      BX_DEBUG(("NV_PGRAPH_LIGHT%d_POSITION[%d]: %f", light, comp, value));
+      BX_GEFORCE_THIS chs[chid].core3d.lights[light].position[comp] = value;
+      BX_GEFORCE_THIS chs[chid].core3d.lights[light].enabled = true;
+      BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty = true;
+      break;
+    }
+      
+    // Vertex processing
+    case 0x0600: // NV_PGRAPH_VERTEX_PROGRAM
+      BX_DEBUG(("NV_PGRAPH_VERTEX_PROGRAM: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.vertex_program = param;
+      break;
+    
+    case 0x0604: // NV_PGRAPH_VERTEX_DATA
+      BX_DEBUG(("NV_PGRAPH_VERTEX_DATA: data: 0x%08x", param));
+      
+      // Process vertex data based on the vertex format and buffer state
+      process_vertex_data(chid, param);
+      break;
+      
+    // Render targets
+    case 0x0700: // NV_PGRAPH_RENDER_TARGET
+      BX_DEBUG(("NV_PGRAPH_RENDER_TARGET: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.render_target = param;
+      break;
+      
+    case 0x0704: // NV_PGRAPH_Z_BUFFER
+      BX_DEBUG(("NV_PGRAPH_Z_BUFFER: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.z_buffer = param;
+      break;
+      
+    case 0x0708: // NV_PGRAPH_COLOR_MASK
+      BX_DEBUG(("NV_PGRAPH_COLOR_MASK: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.color_mask = param;
+      break;
+      
+    // Draw commands
+    case 0x0800: // NV_PGRAPH_DRAW_ARRAYS
+    {
+      Bit32u count = param & 0xFFFF;
+      Bit32u mode = (param >> 16) & 0xF;
+      BX_DEBUG(("NV_PGRAPH_DRAW_ARRAYS: count=%d, mode=%d", count, mode));
+      
+      // Process vertices and draw primitives
+      // This is a simplified implementation that just builds triangles from vertices
+      // mode: 0=points, 1=lines, 2=line_strip, 3=triangles, 4=triangle_strip, 5=triangle_fan
+      
+      // Update transforms if matrices have changed
+      if (BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty) {
+        apply_vertex_transforms(chid);
+      }
+      
+      // Apply lighting if enabled and if lighting state has changed
+      if (BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty) {
+        for (Bit32u i = 0; i < BX_GEFORCE_THIS chs[chid].core3d.num_vertices; i++) {
+          apply_lighting(chid, &BX_GEFORCE_THIS chs[chid].core3d.vertices[i]);
+        }
+      }
+      
+      if (mode == 3 && BX_GEFORCE_THIS chs[chid].core3d.num_vertices >= 3) {
+        // Simple triangle list mode - every 3 vertices form a triangle
+        Bit32u num_tris = count / 3;
+        BX_GEFORCE_THIS chs[chid].core3d.num_triangles = 0;
+        
+        for (Bit32u i = 0; i < num_tris; i++) {
+          if (BX_GEFORCE_THIS chs[chid].core3d.num_triangles < GEFORCE_MAX_TRIANGLES) {
+            geforce_triangle_t *t = &BX_GEFORCE_THIS chs[chid].core3d.triangles[BX_GEFORCE_THIS chs[chid].core3d.num_triangles];
+            
+            // Set up triangle
+            t->v0 = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - count + (i * 3);
+            t->v1 = t->v0 + 1;
+            t->v2 = t->v0 + 2;
+            
+            // Set triangle properties based on current state
+            t->backface_cull = (BX_GEFORCE_THIS chs[chid].core3d.cull_mode != 0);
+            t->textured = (BX_GEFORCE_THIS chs[chid].core3d.texture_control[0] != 0);
+            t->zbuffered = (BX_GEFORCE_THIS chs[chid].core3d.depth_func != 0);
+            t->blended = (BX_GEFORCE_THIS chs[chid].core3d.blend_func != 0);
+            
+            // Rasterize the triangle
+            rasterize_triangle(chid, t);
+            
+            BX_GEFORCE_THIS chs[chid].core3d.num_triangles++;
+          } else {
+            BX_ERROR(("NV_PGRAPH_DRAW_ARRAYS: Triangle buffer overflow"));
+            break;
+          }
+        }
+      } else if (mode == 4 && BX_GEFORCE_THIS chs[chid].core3d.num_vertices >= 3) {
+        // Triangle strip mode - convert to individual triangles
+        Bit32u num_tris = count - 2;
+        BX_GEFORCE_THIS chs[chid].core3d.num_triangles = 0;
+        
+        for (Bit32u i = 0; i < num_tris; i++) {
+          if (BX_GEFORCE_THIS chs[chid].core3d.num_triangles < GEFORCE_MAX_TRIANGLES) {
+            geforce_triangle_t *t = &BX_GEFORCE_THIS chs[chid].core3d.triangles[BX_GEFORCE_THIS chs[chid].core3d.num_triangles];
+            
+            // Set up triangle (alternate winding order for even/odd triangles)
+            Bit32u base = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - count;
+            if (i & 1) {
+              t->v0 = base + i + 1;
+              t->v1 = base + i;
+              t->v2 = base + i + 2;
+            } else {
+              t->v0 = base + i;
+              t->v1 = base + i + 1;
+              t->v2 = base + i + 2;
+            }
+            
+            // Set triangle properties based on current state
+            t->backface_cull = (BX_GEFORCE_THIS chs[chid].core3d.cull_mode != 0);
+            t->textured = (BX_GEFORCE_THIS chs[chid].core3d.texture_control[0] != 0);
+            t->zbuffered = (BX_GEFORCE_THIS chs[chid].core3d.depth_func != 0);
+            t->blended = (BX_GEFORCE_THIS chs[chid].core3d.blend_func != 0);
+            
+            // Rasterize the triangle
+            rasterize_triangle(chid, t);
+            
+            BX_GEFORCE_THIS chs[chid].core3d.num_triangles++;
+          } else {
+            BX_ERROR(("NV_PGRAPH_DRAW_ARRAYS: Triangle buffer overflow"));
+            break;
+          }
+        }
+      } else if (mode == 5 && BX_GEFORCE_THIS chs[chid].core3d.num_vertices >= 3) {
+        // Triangle fan mode - convert to individual triangles
+        Bit32u num_tris = count - 2;
+        BX_GEFORCE_THIS chs[chid].core3d.num_triangles = 0;
+        
+        for (Bit32u i = 0; i < num_tris; i++) {
+          if (BX_GEFORCE_THIS chs[chid].core3d.num_triangles < GEFORCE_MAX_TRIANGLES) {
+            geforce_triangle_t *t = &BX_GEFORCE_THIS chs[chid].core3d.triangles[BX_GEFORCE_THIS chs[chid].core3d.num_triangles];
+            
+            // Set up triangle
+            Bit32u base = BX_GEFORCE_THIS chs[chid].core3d.num_vertices - count;
+            t->v0 = base;  // First vertex is always the center of the fan
+            t->v1 = base + i + 1;
+            t->v2 = base + i + 2;
+            
+            // Set triangle properties based on current state
+            t->backface_cull = (BX_GEFORCE_THIS chs[chid].core3d.cull_mode != 0);
+            t->textured = (BX_GEFORCE_THIS chs[chid].core3d.texture_control[0] != 0);
+            t->zbuffered = (BX_GEFORCE_THIS chs[chid].core3d.depth_func != 0);
+            t->blended = (BX_GEFORCE_THIS chs[chid].core3d.blend_func != 0);
+            
+            // Rasterize the triangle
+            rasterize_triangle(chid, t);
+            
+            BX_GEFORCE_THIS chs[chid].core3d.num_triangles++;
+          } else {
+            BX_ERROR(("NV_PGRAPH_DRAW_ARRAYS: Triangle buffer overflow"));
+            break;
+          }
+        }
+      } else {
+        BX_DEBUG(("NV_PGRAPH_DRAW_ARRAYS: Unsupported primitive mode or insufficient vertices"));
+      }
+      break;
+    }
+        // 2. Clip against view frustum
+        // 3. Apply viewport transform
+        // 4. Rasterize triangle
+        // 5. Apply fragment program/texturing
+        // 6. Apply depth and stencil tests
+        // 7. Apply blending and write to framebuffer
+        
+        // For now, we just mark the display as needing update
+        BX_GEFORCE_THIS svga_needs_update_dispentire = true;
+      } else {
+        BX_DEBUG(("NV_PGRAPH_DRAW_ARRAYS: Unsupported primitive mode or insufficient vertices"));
+      }
+      break;
+    }
+    
+    case 0x0810: // NV_PGRAPH_DRAW_ELEMENTS
+    {
+      Bit32u count = param & 0xFFFF;
+      Bit32u mode = (param >> 16) & 0xF;
+      BX_DEBUG(("NV_PGRAPH_DRAW_ELEMENTS: count=%d, mode=%d", count, mode));
+      
+      // Update transforms if matrices have changed
+      if (BX_GEFORCE_THIS chs[chid].core3d.matrix_dirty) {
+        apply_vertex_transforms(chid);
+      }
+      
+      // Apply lighting if enabled and if lighting state has changed
+      if (BX_GEFORCE_THIS chs[chid].core3d.lighting_dirty) {
+        for (Bit32u i = 0; i < BX_GEFORCE_THIS chs[chid].core3d.num_vertices; i++) {
+          apply_lighting(chid, &BX_GEFORCE_THIS chs[chid].core3d.vertices[i]);
+        }
+      }
+      
+      // Similar to DRAW_ARRAYS but using indices
+      // In a real implementation, we would fetch indices from vertex buffer and build primitives
+      
+      // Currently we just do a simple approximation - assume sequential indices for testing
+      if (mode == 3 && count >= 3) {
+        // Triangle list mode with indices
+        Bit32u num_tris = count / 3;
+        BX_GEFORCE_THIS chs[chid].core3d.num_triangles = 0;
+        
+        for (Bit32u i = 0; i < num_tris; i++) {
+          if (BX_GEFORCE_THIS chs[chid].core3d.num_triangles < GEFORCE_MAX_TRIANGLES) {
+            geforce_triangle_t *t = &BX_GEFORCE_THIS chs[chid].core3d.triangles[BX_GEFORCE_THIS chs[chid].core3d.num_triangles];
+            
+            // Set up triangle - assume sequential indices
+            t->v0 = i * 3;
+            t->v1 = i * 3 + 1;
+            t->v2 = i * 3 + 2;
+            
+            // Set triangle properties based on current state
+            t->backface_cull = (BX_GEFORCE_THIS chs[chid].core3d.cull_mode != 0);
+            t->textured = (BX_GEFORCE_THIS chs[chid].core3d.texture_control[0] != 0);
+            t->zbuffered = (BX_GEFORCE_THIS chs[chid].core3d.depth_func != 0);
+            t->blended = (BX_GEFORCE_THIS chs[chid].core3d.blend_func != 0);
+            
+            // Rasterize the triangle
+            rasterize_triangle(chid, t);
+            
+            BX_GEFORCE_THIS chs[chid].core3d.num_triangles++;
+          }
+        }
+      }
+      break;
+    }
+      
+    // Pipeline control
+    case 0x0900: // NV_PGRAPH_CACHE_FLUSH
+      BX_DEBUG(("NV_PGRAPH_CACHE_FLUSH: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.cache_state = param;
+      break;
+      
+    case 0x0904: // NV_PGRAPH_PIPELINE_FLAGS
+      BX_DEBUG(("NV_PGRAPH_PIPELINE_FLAGS: 0x%08x", param));
+      BX_GEFORCE_THIS chs[chid].core3d.pipeline_flags = param;
+      break;
+      
+    default:
+      BX_DEBUG(("execute_method_3d: Unknown method 0x%03x with param 0x%08x", method, param));
+      break;
+  }
+  
+  // Mark that we need to update the display
+  BX_GEFORCE_THIS svga_needs_update_dispentire = true;
+}
 
 #endif // BX_SUPPORT_GEFORCE

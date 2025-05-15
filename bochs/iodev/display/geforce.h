@@ -42,6 +42,38 @@
 
 #define BX_ROP_PATTERN 0x01
 
+// GeForce3 Ti 500 3D Core specific definitions
+#define GEFORCE_MAX_VERTICES 1024
+#define GEFORCE_MAX_TRIANGLES 1024 
+#define GEFORCE_TEXTURE_UNITS 4
+#define GEFORCE_MAX_TEXTURES 256
+
+// 3D Core Data Structures
+typedef struct {
+  float x, y, z, w;      // Vertex coordinates
+  float nx, ny, nz;      // Normal vector
+  float tu[GEFORCE_TEXTURE_UNITS], tv[GEFORCE_TEXTURE_UNITS]; // Texture coordinates
+  float r, g, b, a;      // Color components
+} geforce_vertex_t;
+
+typedef struct {
+  Bit32u v0, v1, v2;        // Vertex indices
+  bool backface_cull;       // Backface culling flag
+  bool textured;            // Textured triangle flag
+  bool zbuffered;           // Z-buffered triangle flag
+  bool blended;             // Alpha blending flag
+} geforce_triangle_t;
+
+typedef struct {
+  Bit32u width;             // Texture width
+  Bit32u height;            // Texture height
+  Bit32u format;            // Texture format
+  Bit32u address;           // Texture memory address
+  Bit32u mipmap_levels;     // Number of mipmap levels
+  bool bilinear;            // Bilinear filtering
+  bool mipmapped;           // Mipmapping enabled
+} geforce_texture_t;
+
 class bx_geforce_c : public bx_vgacore_c
 {
 public:
@@ -146,6 +178,19 @@ private:
   BX_GEFORCE_SMF void execute_iifc(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_beta(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_sifm(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_method_3d(Bit32u chid, Bit32u method, Bit32u param);
+  
+  // 3D Core helper functions
+  BX_GEFORCE_SMF void matrix_multiply(float *result, const float *a, const float *b);
+  BX_GEFORCE_SMF void transform_vertex(float *dst, const float *matrix, const float *src);
+  BX_GEFORCE_SMF void apply_vertex_transforms(Bit32u chid);
+  BX_GEFORCE_SMF void apply_lighting(Bit32u chid, geforce_vertex_t *v);
+  BX_GEFORCE_SMF Bit32u sample_texture(Bit32u chid, int tex_unit, float u, float v);
+  BX_GEFORCE_SMF void rasterize_triangle(Bit32u chid, const geforce_triangle_t *tri);
+  BX_GEFORCE_SMF void process_vertex_data(Bit32u chid, Bit32u param);
+  BX_GEFORCE_SMF void transform_vertex_pipeline(Bit32u chid, Bit32u vertex_index);
+  BX_GEFORCE_SMF void transform_texture_coords(Bit32u chid, Bit32u vertex_index);
+  BX_GEFORCE_SMF void check_and_build_triangle(Bit32u chid);
 
   BX_GEFORCE_SMF Bit32u get_pixel(Bit32u obj, Bit32u ofs, Bit32u x, Bit32u cb);
   BX_GEFORCE_SMF void put_pixel(Bit32u chid, Bit32u ofs, Bit32u x, Bit32u value);
@@ -318,6 +363,92 @@ private:
     Bit32u patt_fg_color;
     bool patt_data_mono[64];
     Bit32u patt_data_color[64];
+
+    // GeForce3 Ti 500 3D Core state
+    struct {
+      // Transformation matrices
+      float modelview_matrix[16];
+      float projection_matrix[16];
+      float texture_matrix[GEFORCE_TEXTURE_UNITS][16];
+      float composite_matrix[16];  // Modelview-projection composite matrix
+
+      // Vertex state
+      Bit32u vertex_buffer;
+      Bit32u vertex_format;
+      Bit32u vertex_count;
+      Bit32u current_vertex_index;    // Index of the vertex currently being built
+      Bit32u current_component_index; // Index of the component currently being processed
+      
+      // Texture state
+      Bit32u texture_addr[GEFORCE_TEXTURE_UNITS];
+      Bit32u texture_format[GEFORCE_TEXTURE_UNITS];
+      Bit32u texture_filter[GEFORCE_TEXTURE_UNITS];
+      Bit32u texture_control[GEFORCE_TEXTURE_UNITS];
+      Bit32u texture_env[GEFORCE_TEXTURE_UNITS];
+      Bit32u active_texture;
+      
+      // Rasterization state
+      Bit32u polygon_mode;
+      Bit32u blend_func;
+      Bit32u blend_color;
+      Bit32u depth_func;
+      Bit32u stencil_func;
+      Bit32u stencil_op;
+      Bit32u fog_mode;
+      Bit32u fog_color;
+      float fog_params[4];
+      
+      // Clipping and viewport
+      float viewport[4];    // x, y, width, height
+      float depth_range[2]; // near, far
+      Bit32u clip_control;
+      Bit32u scissor_rect[4]; // x, y, width, height
+      Bit32u cull_mode;
+      Bit32u polygon_offset;
+      
+      // Lighting
+      Bit32u light_model;
+      Bit32u lighting_enable;
+      float ambient_light[4];  // r, g, b, a
+      struct {
+        bool enabled;
+        float position[4];
+        float direction[3];
+        float color[4];
+        float attenuation[3];  // constant, linear, quadratic
+        float spot_params[2];  // exponent, cutoff
+      } lights[8];
+      
+      // Pipeline control
+      Bit32u cache_state;
+      Bit32u pipeline_flags;
+      
+      // Shader state
+      Bit32u vertex_program;
+      Bit32u vertex_program_data[256];
+      Bit32u fragment_program;
+      Bit32u fragment_program_data[256];
+      
+      // Render target
+      Bit32u render_target;
+      Bit32u z_buffer;
+      Bit32u color_mask;
+      
+      // Geometry data
+      geforce_vertex_t vertices[GEFORCE_MAX_VERTICES];
+      geforce_triangle_t triangles[GEFORCE_MAX_TRIANGLES];
+      Bit32u num_vertices;
+      Bit32u num_triangles;
+      
+      // Textures
+      geforce_texture_t textures[GEFORCE_MAX_TEXTURES];
+      
+      // State cache
+      Bit32u state_dirty;  // Bitfield for state updates
+      bool matrix_dirty;
+      bool lighting_dirty;
+      bool texture_dirty;
+    } core3d;
 
     Bit32u gdi_operation;
     Bit32u gdi_color_fmt;
