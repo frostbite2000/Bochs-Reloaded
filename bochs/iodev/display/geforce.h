@@ -49,12 +49,13 @@ public:
   virtual ~bx_geforce_c();
 
   virtual bool init_vga_extension(void);
+  Bit16u get_crtc_vtotal();
   virtual void get_crtc_params(bx_crtc_params_t* crtcp, Bit32u* vclock);
   virtual void reset(unsigned type);
   virtual void redraw_area(unsigned x0, unsigned y0,
                            unsigned width, unsigned height);
-  void redraw_area(Bit32s x0, Bit32s y0,
-                   Bit32u width, Bit32u height);
+  void redraw_area(Bit32s x0, Bit32s y0, Bit32u width, Bit32u height);
+  void redraw_area(Bit32u offset, Bit32u width, Bit32u height);
   virtual Bit8u mem_read(bx_phy_address addr);
   virtual void mem_write(bx_phy_address addr, Bit8u value);
   virtual void get_text_snapshot(Bit8u **text_snapshot,
@@ -112,6 +113,7 @@ private:
   BX_GEFORCE_SMF Bit16u physical_read16(Bit32u address);
   BX_GEFORCE_SMF Bit32u physical_read32(Bit32u address);
   BX_GEFORCE_SMF void physical_write8(Bit32u address, Bit8u value);
+  BX_GEFORCE_SMF void physical_write16(Bit32u address, Bit16u value);
   BX_GEFORCE_SMF void physical_write32(Bit32u address, Bit32u value);
   BX_GEFORCE_SMF void physical_write64(Bit32u address, Bit64u value);
   BX_GEFORCE_SMF Bit8u dma_read8(Bit32u object, Bit32u address);
@@ -121,32 +123,54 @@ private:
   BX_GEFORCE_SMF void dma_write16(Bit32u object, Bit32u address, Bit16u value);
   BX_GEFORCE_SMF void dma_write32(Bit32u object, Bit32u address, Bit32u value);
   BX_GEFORCE_SMF void dma_write64(Bit32u object, Bit32u address, Bit64u value);
+  BX_GEFORCE_SMF void dma_copy(Bit32u dst_obj, Bit32u dst_addr,
+    Bit32u src_obj, Bit32u src_addr, Bit32u byte_count);
   BX_GEFORCE_SMF Bit32u dma_pt_lookup(Bit32u object, Bit32u address);
   BX_GEFORCE_SMF Bit32u dma_lin_lookup(Bit32u object, Bit32u address);
+  BX_GEFORCE_SMF Bit32u ramfc_address(Bit32u chid, Bit32u offset);
+  BX_GEFORCE_SMF void ramfc_write32(Bit32u chid, Bit32u offset, Bit32u value);
+  BX_GEFORCE_SMF Bit32u ramfc_read32(Bit32u chid, Bit32u offset);
 
   BX_GEFORCE_SMF Bit64u get_current_time();
 
-  BX_GEFORCE_SMF Bit32u ramht_lookup(Bit32u handle, Bit32u chid);
+  BX_GEFORCE_SMF void ramht_lookup(Bit32u handle, Bit32u chid, Bit32u* object, Bit8u* engine);
 
-  BX_GEFORCE_SMF void execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void fifo_process(Bit32u chid);
+  BX_GEFORCE_SMF bool execute_command(Bit32u chid, Bit32u subc, Bit32u method, Bit32u param);
+
+  BX_GEFORCE_SMF void update_color_bytes_ifc(Bit32u chid);
+  BX_GEFORCE_SMF void update_color_bytes_sifc(Bit32u chid);
+  BX_GEFORCE_SMF void update_color_bytes_iifc(Bit32u chid);
+  BX_GEFORCE_SMF void update_color_bytes(Bit32u s2d_color_fmt, Bit32u color_fmt, Bit32u* color_bytes);
 
   BX_GEFORCE_SMF void execute_clip(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_m2mf(Bit32u chid, Bit32u subc, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_rop(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_patt(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_gdi(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_chroma(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_imageblit(Bit32u chid, Bit8u cls, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_ifc(Bit32u chid, Bit8u cls, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_surf2d(Bit32u chid, Bit32u method, Bit32u param);
   BX_GEFORCE_SMF void execute_iifc(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_sifc(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_beta(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_sifm(Bit32u chid, Bit32u method, Bit32u param);
+  BX_GEFORCE_SMF void execute_d3d(Bit32u chid, Bit8u cls, Bit32u method, Bit32u param);
 
-  BX_GEFORCE_SMF Bit32u color_565_to_888(Bit16u value);
+  BX_GEFORCE_SMF Bit32u get_pixel(Bit32u obj, Bit32u ofs, Bit32u x, Bit32u cb);
+  BX_GEFORCE_SMF void put_pixel(Bit32u chid, Bit32u ofs, Bit32u x, Bit32u value);
+  BX_GEFORCE_SMF void pixel_operation(Bit32u chid, Bit32u op,
+    Bit32u* dstcolor, const Bit32u* srccolor, Bit32u cb, Bit32u px, Bit32u py);
+
   BX_GEFORCE_SMF void gdi_fillrect(Bit32u chid, bool clipped);
   BX_GEFORCE_SMF void gdi_blit(Bit32u chid, Bit32u type);
   BX_GEFORCE_SMF void ifc(Bit32u chid);
   BX_GEFORCE_SMF void iifc(Bit32u chid);
+  BX_GEFORCE_SMF void sifc(Bit32u chid);
   BX_GEFORCE_SMF void copyarea(Bit32u chid);
-  BX_GEFORCE_SMF void move(Bit32u chid);
+  BX_GEFORCE_SMF void m2mf(Bit32u chid);
+  BX_GEFORCE_SMF void sifm(Bit32u chid);
 
   struct {
     Bit8u index;
@@ -155,6 +179,8 @@ private:
 
   Bit32u mc_intr_en;
   Bit32u mc_enable;
+  Bit32u bus_intr;
+  Bit32u bus_intr_en;
   Bit32u fifo_intr;
   Bit32u fifo_intr_en;
   Bit32u fifo_ramht;
@@ -163,12 +189,15 @@ private:
   Bit32u fifo_mode;
   Bit32u fifo_cache1_push1;
   Bit32u fifo_cache1_put;
+  Bit32u fifo_cache1_dma_push;
   Bit32u fifo_cache1_dma_instance;
   Bit32u fifo_cache1_dma_put;
   Bit32u fifo_cache1_dma_get;
   Bit32u fifo_cache1_ref_cnt;
   Bit32u fifo_cache1_pull0;
+  Bit32u fifo_cache1_semaphore;
   Bit32u fifo_cache1_get;
+  Bit32u fifo_grctx_instance;
   Bit32u fifo_cache1_method[GEFORCE_CACHE1_SIZE];
   Bit32u fifo_cache1_data[GEFORCE_CACHE1_SIZE];
   Bit32u rma_addr;
@@ -182,8 +211,16 @@ private:
   Bit32u straps0_primary;
   Bit32u straps0_primary_original;
   Bit32u graph_intr;
+  Bit32u graph_nsource;
   Bit32u graph_intr_en;
+  Bit32u graph_ctx_switch1;
+  Bit32u graph_ctx_switch2;
+  Bit32u graph_ctx_switch4;
+  Bit32u graph_ctxctl_cur;
   Bit32u graph_status;
+  Bit32u graph_trapped_addr;
+  Bit32u graph_trapped_data;
+  Bit32u graph_notify;
   Bit32u graph_fifo;
   Bit32u graph_channel_ctx_table;
   Bit32u crtc_intr;
@@ -196,9 +233,12 @@ private:
   Bit32u ramdac_vpll;
   Bit32u ramdac_vpll_b;
   Bit32u ramdac_pll_select;
+  Bit32u ramdac_general_control;
 
   bx_bitblt_rop_t rop_handler[0x100];
   Bit8u  rop_flags[0x100];
+
+  bool acquire_active;
 
   struct {
     Bit32u subr_return;
@@ -226,6 +266,7 @@ private:
     Bit32u s2d_ofs_src;
     Bit32u s2d_ofs_dst;
 
+    bool ifc_color_key_enable;
     Bit32u ifc_operation;
     Bit32u ifc_color_fmt;
     Bit32u ifc_color_bytes;
@@ -237,6 +278,8 @@ private:
     Bit32u* ifc_words;
 
     Bit32u iifc_palette;
+    Bit32u iifc_palette_ofs;
+    Bit32u iifc_operation;
     Bit32u iifc_color_fmt;
     Bit32u iifc_color_bytes;
     Bit32u iifc_bpp4;
@@ -247,10 +290,37 @@ private:
     Bit32u iifc_words_left;
     Bit32u* iifc_words;
 
+    Bit32u sifc_operation;
+    Bit32u sifc_color_fmt;
+    Bit32u sifc_color_bytes;
+    Bit32u sifc_shw;
+    Bit32u sifc_dxds;
+    Bit32u sifc_dydt;
+    Bit32u sifc_clip_yx;
+    Bit32u sifc_clip_hw;
+    Bit32u sifc_syx;
+    Bit32u sifc_words_ptr;
+    Bit32u sifc_words_left;
+    Bit32u* sifc_words;
+
+    bool blit_color_key_enable;
     Bit32u blit_operation;
     Bit32u blit_syx;
     Bit32u blit_dyx;
     Bit32u blit_hw;
+
+    Bit32u sifm_src;
+    Bit32u sifm_operation;
+    Bit32u sifm_color_fmt;
+    Bit32u sifm_color_bytes;
+    Bit32u sifm_syx;
+    Bit32u sifm_dyx;
+    Bit32u sifm_shw;
+    Bit32u sifm_dhw;
+    Bit32u sifm_dudx;
+    Bit32u sifm_dvdy;
+    Bit32u sifm_sfmt;
+    Bit32u sifm_sofs;
 
     Bit32u m2mf_src;
     Bit32u m2mf_dst;
@@ -263,16 +333,31 @@ private:
     Bit32u m2mf_format;
     Bit32u m2mf_buffer_notify;
 
+    Bit32u d3d_semaphore_obj;
+    Bit32u d3d_semaphore_offset;
+
     Bit8u  rop;
 
+    Bit32u beta;
+
+    Bit32u clip_yx;
+    Bit32u clip_hw;
+
+    Bit32u chroma_color_fmt;
+    Bit32u chroma_color;
+
+    Bit32u patt_shape;
+    Bit32u patt_type;
     Bit32u patt_bg_color;
     Bit32u patt_fg_color;
+    bool patt_data_mono[64];
+    Bit32u patt_data_color[64];
 
     Bit32u gdi_operation;
     Bit32u gdi_color_fmt;
+    Bit32u gdi_clip_yx0;
+    Bit32u gdi_clip_yx1;
     Bit32u gdi_rect_color;
-    Bit32u gdi_rect_clip_yx0;
-    Bit32u gdi_rect_clip_yx1;
     Bit32u gdi_rect_xy;
     Bit32u gdi_rect_yx0;
     Bit32u gdi_rect_yx1;

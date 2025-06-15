@@ -581,6 +581,7 @@ void bx_init_options()
   bx_list_c *logfn = new bx_list_c(menu, "logfn", "Logfunctions");
   new bx_list_c(logfn, "debug", "");
   new bx_list_c(logfn, "info", "");
+  new bx_list_c(logfn, "warn", "");
   new bx_list_c(logfn, "error", "");
   new bx_list_c(logfn, "panic", "");
 
@@ -1024,6 +1025,7 @@ void bx_init_options()
   static const char *ddc_mode_list[] = {
     "disabled",
     "builtin",
+    "builtin_gui",
     "file",
     NULL
   };
@@ -2144,6 +2146,8 @@ static Bit32s parse_log_options(const char *context, int num_params, char *param
     level = LOGLEV_PANIC;
   } else if (!strcmp(params[0], "error")) {
     level = LOGLEV_ERROR;
+  } else if (!strcmp(params[0], "warn")) {
+    level = LOGLEV_WARN;
   } else if (!strcmp(params[0], "info")) {
     level = LOGLEV_INFO;
   } else { /* debug */
@@ -2282,10 +2286,8 @@ int bx_parse_usb_port_params(const char *context, const char *param,
 {
   bool devopt = 0;
   int idx, plen;
-  char pname[20], newopts[BX_PATHNAME_LEN];
-  char *devstr, *arg, *pEnd;
-  const char *opt = NULL, *origopts;
-  static bool compat_mode = false;
+  char pname[20];
+  char *pEnd;
   bx_list_c *pbase;
 
   if (!strncmp(param, "port", 4)) {
@@ -2309,8 +2311,6 @@ int bx_parse_usb_port_params(const char *context, const char *param,
   sprintf(pname, "port%d", idx);
   pbase = (bx_list_c*)SIM->get_param(pname, base);
   if (devopt) {
-    compat_mode = false;
-
     // if we already have found this port's declaration in the bochsrc.txt file, give error
     // for example:
     //   usb_ohci: port1=mouse, options1="speed:low, model:m228"
@@ -2325,34 +2325,8 @@ int bx_parse_usb_port_params(const char *context, const char *param,
         BX_PANIC(("%s: Already declared port%d type. Please choose another available port number.", context, idx));
       }
     }
-
     if (!SIM->get_param_enum("device", pbase)->set_by_name(&param[plen + 2])) {
-      // backward compatibility code
-      devstr = strdup(&param[plen + 2]);
-      arg = strtok(devstr, ":");
-      arg = strtok(NULL, "\n");
-      SIM->get_param_enum("device", pbase)->set_by_name(devstr);
-      if (arg != NULL) {
-        if (!strcmp(devstr, "disk") || !strcmp(devstr, "cdrom") ||
-            !strcmp(devstr, "floppy")) {
-          opt = "path";
-        } else if (!strcmp(devstr, "hub")) {
-          opt = "ports";
-        } else if (!strcmp(devstr, "printer")) {
-          opt = "file";
-        }
-        if (opt != NULL) {
-          origopts = SIM->get_param_string("options", pbase)->getptr();
-          if (strlen(origopts) > 0) {
-            sprintf(newopts, "%s:%s, %s", opt, arg, origopts);
-          } else {
-            sprintf(newopts, "%s:%s", opt, arg);
-          }
-          SIM->get_param_string("options", pbase)->set(newopts);
-          compat_mode = true;
-        }
-      }
-      free(devstr);
+      BX_PANIC(("%s: USB port options: backward compatibility code no longer supported", context));
     }
   } else {
     // if we already have found this options#= declaration in the bochsrc.txt file, give warning.
@@ -2367,15 +2341,7 @@ int bx_parse_usb_port_params(const char *context, const char *param,
     if (!SIM->get_param_string("options", pbase)->isempty()) {
       BX_INFO(("%s: Already declared options%d parameter. Was this intended?", context, idx));
     }
-
-    if (compat_mode) {
-      origopts = SIM->get_param_string("options", pbase)->getptr();
-      sprintf(newopts, "%s, %s", origopts, &param[plen + 2]);
-      compat_mode = false;
-    } else {
-      strcpy(newopts, &param[plen + 2]);
-    }
-    SIM->get_param_string("options", pbase)->set(newopts);
+    SIM->get_param_string("options", pbase)->set(&param[plen + 2]);
   }
   return 0;
 }
@@ -2794,6 +2760,13 @@ static int parse_line_formatted(const char *context, int num_params, char *param
   } else if (!strcmp(params[0], "error")) {
     if (num_params < 2) {
       PARSE_ERR(("%s: error directive malformed.", context));
+    }
+    if (parse_log_options(context, num_params, params) < 0) {
+      return -1;
+    }
+  } else if (!strcmp(params[0], "warn")) {
+    if (num_params < 2) {
+      PARSE_ERR(("%s: info directive malformed.", context));
     }
     if (parse_log_options(context, num_params, params) < 0) {
       return -1;

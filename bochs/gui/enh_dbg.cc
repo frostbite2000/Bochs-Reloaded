@@ -24,6 +24,7 @@
 #include "cpu/cpu.h"
 
 extern char* disasm(const Bit8u *opcode, bool is_32, bool is_64, char *disbufptr, bxInstruction_c *i, bx_address cs_base, bx_address rip);
+extern const char *stringify_EFLAGS(Bit32u eflags, char *s);
 
 #include "enh_dbg.h"
 
@@ -439,29 +440,8 @@ void upr(char* d)
 // create EFLAGS display for Status line
 void ShowEflags(char *buf)
 {
-    static const char *EflBName[16] = {
-        "cf", "pf", "af", "zf", "sf", "tf", "if", "df", "of", "nt", "rf", "vm", "ac", "vif", "vip", "id"
-    };
-    static const int EflBNameLen[16] = {
-        2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,2
-    };
-    static const int EflBitVal[16] = {
-        1, 4, 0x10, 0x40, 0x80, 0x100, 0x200, 0x400, 0x800, 0x4000, 0x10000, 0x20000, 0x40000, 0x80000, 0x100000, 0x200000
-    };
-
     Bit32u Efl = (Bit32u) rV[EFL_Rnum];
-    int i = 16;
-    char *cp = buf + 6;
-
-    sprintf(buf,"IOPL=%1u", (Efl & 0x3000) >> 12);
-    while (--i >= 0)
-    {
-        *(cp++)= ' ';
-        strcpy (cp, EflBName[i]);       // copy the name of the bitflag
-        if ((Efl & EflBitVal[i]) != 0)  // if the bit is set, put the name in uppercase
-            upr(cp);
-        cp += EflBNameLen[i];
-    }
+    stringify_EFLAGS(Efl, buf);
 }
 
 // change the display on the status line if anything has changed
@@ -531,7 +511,7 @@ bool ReadBxLMem(Bit64u laddr, unsigned len, Bit8u *buf)
 }
 
 // binary conversion (and validity testing) on hex/decimal char string inputs
-Bit64u cvthex(char *p, Bit64u errval)
+Bit64u cvthex(const char *p, Bit64u errval)
 {
     Bit64u ret = 0;
     bool end = FALSE;
@@ -549,9 +529,9 @@ Bit64u cvthex(char *p, Bit64u errval)
     return ret;
 }
 
-Bit64u cvt64(char *nstr, bool negok)
+Bit64u cvt64(const char *nstr, bool negok)
 {
-    char *p, *s;
+    const char *p, *s;
     Bit64u ret = 0;
     bool neg = FALSE;
     p= nstr;
@@ -575,7 +555,7 @@ Bit64u cvt64(char *nstr, bool negok)
 }
 
 // "singlestep" disassembly lines from the internal debugger are sometimes ignored
-bool isSSDisasm(char *s)
+bool isSSDisasm(const char *s)
 {
     if (ignSSDisasm == FALSE)   // ignoring those lines?
         return FALSE;
@@ -815,18 +795,18 @@ int FillSSE(int LineCount)
     return (LineCount);
 }
 
+#if BX_SUPPORT_FPU
+extern double x87_to_double(Bit16u signExp, Bit64u signif);
+
 // this routine is only called if debugger already knows FPU is supported
 // -- but it might not be active
 int FillMMX(int LineCount)
 {
-    static double scale_factor = pow(2.0, -63.0);
-    int i;
-    Bit16u exp = 0;
-    Bit64u mmreg = 0;
     bx_param_num_c *p;
-    unsigned short exponent[8];
+    Bit16u exponent[8];
     char *cols[3];
     char fputxt[60];
+    int i;
 
     cols[0] = fputxt;
     if ((rV[CR0_Rnum] & 0xc) != 0)  // TS or EM flags in CR0 temporarily disable MMX/FPU/SSE
@@ -842,35 +822,24 @@ int FillMMX(int LineCount)
     cols[2] = fputxt + 32;
     strcpy (fputxt, "MM0-ST0");
     strcpy (fputxt + 18, " : ");
-    i = 7;
     for (i = 0; i < 8; i++)
     {
         fputxt[2] = i + '0';
         fputxt[6] = i + '0';
         RitemToRnum[LineCount] = i + ST0_Rnum;
         p = RegObject[CurrentCPU][ST0_Rnum + i];
+        Bit64u mmreg = 0;
         if (p != NULL)
             mmreg = p->get64(); // get the value of "mmx(i)" register
-        else
-            mmreg = 0;
-        sprintf (fputxt + 10,Fmt32b[UprCase],GET32H(mmreg));
-        sprintf (fputxt + 21,Fmt32b[UprCase], GET32L(mmreg));
+        sprintf (fputxt + 10, Fmt64b[UprCase], mmreg);
 
         p = RegObject[CurrentCPU][ST0_exp + i];
+        Bit16u exp = 0;
         if (p != NULL)
             exp = (Bit16u) p->get64();  // get the exponent for this FPU register
-        else
-            exp = 0;
         exponent[i] = exp;              // save each one temporarily
-        double f = pow(2.0, ((0x7fff & exp) - 0x3fff));
-        if (exp & 0x8000)
-            f = -f;
-#ifdef _MSC_VER
-        f *= (double)(signed __int64)(mmreg>>1) * scale_factor * 2;
-#else
-        f *= mmreg*scale_factor;
-#endif
-        sprintf (cols[2],"%.3e",f);
+        double f = x87_to_double(exp, mmreg);
+        sprintf (cols[2],"%.3e", f);
         InsertListRow(cols, 3, REG_WND, LineCount, 3);  // 3 cols, group 3
         ++LineCount;
     }
@@ -879,13 +848,14 @@ int FillMMX(int LineCount)
     {
         fputxt[2] = i + '0';
         RitemToRnum[LineCount] = i + ST0_exp;
-        sprintf (fputxt+10,Fmt16b[UprCase], exponent[i]);   // col1
-        sprintf (fputxt+32,"%u", exponent[i]);      // col2
-        InsertListRow(cols, 3, REG_WND, LineCount, 3);  // 3 cols, group 3
+        sprintf (fputxt+10, Fmt16b[UprCase], exponent[i]);   // col1
+        sprintf (fputxt+32,"%u", exponent[i]);               // col2
+        InsertListRow(cols, 3, REG_WND, LineCount, 3);       // 3 cols, group 3
         ++LineCount;
     }
     return LineCount;
 }
+#endif
 
 // get values of Debug registers from simulation
 int FillDebugRegs(int itemnum)

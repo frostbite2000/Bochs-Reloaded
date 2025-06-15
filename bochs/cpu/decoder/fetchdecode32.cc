@@ -1510,7 +1510,7 @@ int decoder_evex32(const Bit8u *iptr, unsigned &remain, bxInstruction_c *i, unsi
   //    7 6 5 4 3 2 1 0
   //    ---------------
   // P0 R X B R'0 m m m
-  // P1 w v v v v u p p ; evex.u was always '1 before avx10.2
+  // P1 w v v v v u p p
   // P2 z L'L b V'a a a
 
   // EVEX.mmmm - opcode group
@@ -1523,11 +1523,14 @@ int decoder_evex32(const Bit8u *iptr, unsigned &remain, bxInstruction_c *i, unsi
   // EVEX.W    - opsize promotion / opcode extension
   // EVEX.z    - zero masking / merging
   // EVEX.b    - broadcast / round control / SAE
-  // EVEX.u    - round control / SAE for 256-bit (AVX10.2)
   // EVEX.LL   - vector length control
 
   // check for reserved EVEX bits
   if ((evex & 0x08) != 0)
+    return(ia_opcode);
+
+  // EVEX.U must be '1
+  if ((evex & 0x400) == 0)
     return(ia_opcode);
 
   unsigned evex_opc_map = evex & 0x7;
@@ -1554,9 +1557,6 @@ int decoder_evex32(const Bit8u *iptr, unsigned &remain, bxInstruction_c *i, unsi
   i->setVL(1 << evex_vl_rc);
   i->setVexW(vex_w);
 
-  unsigned evex_u = (evex >> 10) & 0x1;
-  i->setEvexU(evex_u);
-
   unsigned evex_z = (evex >> 23) & 0x1;
   i->setZeroMasking(evex_z);
 
@@ -1576,9 +1576,6 @@ int decoder_evex32(const Bit8u *iptr, unsigned &remain, bxInstruction_c *i, unsi
   if (modrm.mod == 0xc0) {
     // EVEX.b in reg form implies 512-bit vector length
     if (i->getEvexb()) i->setVL(BX_VL512);
-
-    // EVEX.u=0 in reg form implies 256-bit vector length
-    if (!i->getEvexU()) i->setVL(BX_VL256);
   }
 
   Bit32u vl = i->getVL()-1; // 0: VL128, 1: VL256, 3: VL512
@@ -2069,15 +2066,6 @@ int BX_CPU_C::assignHandler(bxInstruction_c *i, Bit32u fetchModeMask)
 
 #if BX_SUPPORT_EVEX
   if ((op_flags & BX_PREPARE_EVEX) != 0) {
-    bool allow512 = BX_CPU_THIS_PTR cpuid->support_avx10_512();
-#if BX_SUPPORT_VMX
-    if (BX_CPU_THIS_PTR in_vmx_guest && BX_CPU_THIS_PTR vmcs.vmexec_ctrls3.EMULATE_AVX10_VL256()) allow512 = false;
-#endif
-    if (! allow512 && i->getVL() == BX_VL512 && (op_flags & BX_EVEX_VL_IGNORE) == 0) {
-      BX_DEBUG(("%s: VL512 is not supported for this processor", i->getIaOpcodeNameShort()));
-      i->execute1 = &BX_CPU_C::BxError;
-    }
-
     if (i->getEvexb()) {
       if (! i->modC0()) {
         if ((op_flags & BX_PREPARE_EVEX_NO_BROADCAST) == BX_PREPARE_EVEX_NO_BROADCAST) {
@@ -2090,13 +2078,6 @@ int BX_CPU_C::assignHandler(bxInstruction_c *i, Bit32u fetchModeMask)
           BX_DEBUG(("%s: EVEX.b in reg form is not allowed for instructions which cannot cause floating point exception", i->getIaOpcodeNameShort()));
           i->execute1 = &BX_CPU_C::BxError;
         }
-      }
-    }
-
-    if (! i->getEvexU()) {
-      if (! BX_CPUID_SUPPORT_ISA_EXTENSION(BX_ISA_AVX10_2)) {
-        BX_DEBUG(("%s: EVEX.U must be '1 without AVX10.2", i->getIaOpcodeNameShort()));
-        i->execute1 = &BX_CPU_C::BxError;
       }
     }
   }

@@ -118,6 +118,7 @@ void bx_dbg_unwatch_all(void);
 void bx_dbg_unwatch(bx_phy_address handle);
 void bx_dbg_continue_command(bool expression);
 void bx_dbg_stepN_command(int cpu, Bit32u count);
+int  bx_dbg_run_to_laddr(bx_address addr);
 void bx_dbg_set_auto_disassemble(bool enable);
 void bx_dbg_disassemble_switch_mode(void);
 void bx_dbg_set_disassemble_size(unsigned size);
@@ -190,7 +191,7 @@ void bx_dbg_check_memory_watchpoints(unsigned cpu, bx_phy_address phy, unsigned 
 void bx_dbg_restore_command(const char *param_name, const char *path);
 void bx_dbg_show_param_command(const char *param, bool xml);
 
-void bx_dbg_show_symbolic(void);
+void bx_dbg_show_symbolic(unsigned cpu);
 void bx_dbg_set_symbol_command(const char *symbol, bx_address val);
 const char* bx_dbg_symbolic_address(bx_address context, bx_address eip, bx_address base);
 int bx_dbg_symbol_command(const char* filename, bool global, bx_address offset);

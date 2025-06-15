@@ -1,5 +1,5 @@
 .\"Document Author:  Timothy R. Butler   -   tbutler@uninetsolutions.com"
-.TH bochsrc 5 "07 Mar 2025" "bochsrc" "The Bochs Project"
+.TH bochsrc 5 "23 May 2025" "bochsrc" "The Bochs Project"
 .\"SKIP_SECTION"
 .SH NAME
 bochsrc \- Configuration file for Bochs.
@@ -295,10 +295,6 @@ at startup if existing and saved on exit if modified. The Bochs BIOS doesn't
 use this feature yet.
 
 .B NOTE:
-If you use the BIOS-bochs-legacy romimage BIOS option, you cannot use a PCI
-enabled VGA ROM BIOS.
-
-.B NOTE:
 If you use a SeaBIOS binary in romimage BIOS option, you must use a PCI
 enabled VGA ROM BIOS.
 
@@ -363,7 +359,8 @@ ddc:
 
 This parameter defines the behaviour of the DDC emulation that returns
 the monitor EDID data. By default the 'builtin' values for 'Bochs Screen'
-are used. Other choices are 'disabled' (no DDC emulation) and 'file'
+are used. Other choices are 'builtin_gui' (limit builtin values based on
+gui capabilities), 'disabled' (no DDC emulation) and 'file'
 (read monitor EDID from file / path name separated with a colon).
 
 vbe_memsize:
@@ -378,14 +375,12 @@ Examples:
 
 .TP
 .I "voodoo:"
-This defines the Voodoo Graphics emulation (experimental). Currently
-supported models are 'voodoo1', 'voodoo2', 'banshee' and 'voodoo3'.
-The Voodoo2 support is not yet complete, but almost usable. The Banshee /
-Voodoo3 support is under construction, but basically usable. The 2D/3D cards
-require an external VGA BIOS the vga extension option to be set to 'voodoo'.
-If the i440BX PCI chipset is selected, they can be assigned to AGP (slot #5).
-The gui screen update timing for all models is controlled by the related
-\&'vga' options.
+This defines the Voodoo Graphics emulation. Currently supported models
+are 'voodoo1', 'voodoo2', 'banshee' and 'voodoo3'. The 2D/3D cards
+require the 'banshee' version of the LGPL'd VGABIOS or an external VGA BIOS
+and the vga extension option to be set to 'voodoo'. If the i440BX PCI chipset
+is selected, they can be assigned to AGP (slot #5). The gui screen update
+timing for all models is controlled by the related 'vga' options.
 
 Example:
   voodoo: enabled=1, model=voodoo1
@@ -787,6 +782,19 @@ information  to the log file),  or ignore  (do nothing).
 Example:
   error: action=report
   error: action=warn
+
+
+.TP
+.I "warn:"
+This level can be used to show import messages to the
+user. By default it brings up a message box. The reason
+for this condition can be different. It can be originally
+caused by a bug or missing feature in the emulation, but
+other reasons are also possible.
+
+Example:
+  warn: action=report
+
 
 .TP
 .I "info:"
